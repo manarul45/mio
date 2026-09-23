@@ -91,20 +91,29 @@ const filteredTables = computed(() => {
     return tableStats.value.filter(t => t.name.toLowerCase().includes(q) || t.label.toLowerCase().includes(q));
 });
 
+const selectedFile = ref<File | null>(null);
+
 const handleFileUpload = (event: any) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    sqlFileName.value = file.name;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        sqlFileContent.value = e.target?.result as string || '';
-    };
-    reader.readAsText(file);
+    selectedFile.value = file;
+    sqlFileName.value = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+
+    // Untuk file berukuran wajar (< 1MB), kita muat ke textarea agar bisa di-preview
+    if (file.size < 1024 * 1024) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            sqlFileContent.value = e.target?.result as string || '';
+        };
+        reader.readAsText(file);
+    } else {
+        sqlFileContent.value = `/* File SQL terpilih: ${file.name} - Ukuran: ${(file.size / (1024 * 1024)).toFixed(2)} MB.\nFile akan diunggah dan diproses secara langsung via streaming buffer tanpa membebani memori browser. */`;
+    }
 };
 
 const executeSqlImport = async () => {
-    if (!sqlFileContent.value.trim()) {
+    if (!selectedFile.value && !sqlFileContent.value.trim()) {
         swal.toastError('Pilih file SQL atau masukkan konten SQL terlebih dahulu.');
         return;
     }
@@ -113,16 +122,21 @@ const executeSqlImport = async () => {
     importResults.value = null;
 
     try {
+        const formData = new FormData();
+        if (selectedFile.value) {
+            formData.append('file', selectedFile.value);
+        } else {
+            formData.append('sql_content', sqlFileContent.value);
+        }
+
         const res = await $fetch('/api/admin/import-sql', {
             method: 'POST',
-            body: {
-                sql_content: sqlFileContent.value,
-            },
+            body: formData,
         });
 
         importResults.value = res;
         swal.fireSuccess('Import Berhasil!', 'Data SQL berhasil dimigrasikan ke database Supabase.');
-        loadDatabaseStats();
+        await loadDatabaseStats();
     } catch (err: any) {
         swal.fireError('Import Gagal', err.data?.statusMessage || err.message || 'Terjadi kesalahan saat mengimpor SQL.');
     } finally {

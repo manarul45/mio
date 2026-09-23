@@ -115,7 +115,7 @@ const loadCourseDetails = async () => {
             .from('courses')
             .select(`
                 *,
-                sections(
+                sections:course_sections(
                     *,
                     lessons(*),
                     quizzes(

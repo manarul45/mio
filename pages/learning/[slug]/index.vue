@@ -53,7 +53,7 @@ const loadClassroomData = async () => {
                 *,
                 categories:category_id(name),
                 profiles:instructor_id(name),
-                sections(
+                sections:course_sections(
                     *,
                     lessons(*),
                     quizzes(

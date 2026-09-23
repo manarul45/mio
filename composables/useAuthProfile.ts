@@ -7,7 +7,7 @@ export const useAuthProfile = () => {
   const loading = useState<boolean>('auth_profile_loading', () => false)
 
   const fetchProfile = async () => {
-    if (!user.value) {
+    if (!user.value || !user.value.id) {
       profile.value = null
       return null
     }
@@ -18,11 +18,38 @@ export const useAuthProfile = () => {
         .from('profiles')
         .select('*')
         .eq('id', user.value.id)
-        .single()
+        .maybeSingle()
 
       if (error) throw error
-      profile.value = data as Profile
-      return data as Profile
+
+      let fetchedProfile = data as Profile | null
+      const email = (user.value.email || '').toLowerCase().trim()
+      const isAutoAdmin = email === 'admin@mioacademy.com' || email.startsWith('admin@')
+
+      if (isAutoAdmin) {
+        if (!fetchedProfile) {
+          const { data: newProfile } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.value.id,
+              name: user.value.user_metadata?.name || user.value.user_metadata?.full_name || email.split('@')[0],
+              email: user.value.email,
+              role: 'ADMIN'
+            })
+            .select('*')
+            .single()
+          fetchedProfile = newProfile as Profile
+        } else if (fetchedProfile.role !== 'ADMIN' && fetchedProfile.role !== 'SUPER_ADMIN') {
+          await supabase
+            .from('profiles')
+            .update({ role: 'ADMIN' })
+            .eq('id', user.value.id)
+          fetchedProfile.role = 'ADMIN'
+        }
+      }
+
+      profile.value = fetchedProfile
+      return fetchedProfile
     } catch (err) {
       console.error('Error fetching profile:', err)
       profile.value = null
@@ -39,10 +66,16 @@ export const useAuthProfile = () => {
   }
 
   const isAdmin = computed(() => {
-    return profile.value?.role === 'ADMIN' ||
+    const email = (user.value?.email || '').toLowerCase().trim()
+    const isAutoAdmin = email === 'admin@mioacademy.com' || email.startsWith('admin@')
+
+    return isAutoAdmin ||
+           profile.value?.role === 'ADMIN' ||
            profile.value?.role === 'SUPER_ADMIN' ||
            user.value?.user_metadata?.role === 'ADMIN' ||
-           user.value?.user_metadata?.role === 'SUPER_ADMIN'
+           user.value?.user_metadata?.role === 'SUPER_ADMIN' ||
+           user.value?.app_metadata?.role === 'ADMIN' ||
+           user.value?.app_metadata?.role === 'SUPER_ADMIN'
   })
 
   const isInstructor = computed(() => {

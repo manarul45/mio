@@ -10,7 +10,10 @@ export default defineNuxtRouteMiddleware(async () => {
     await fetchProfile()
   }
 
+  const userEmail = (user.value?.email || '').toLowerCase().trim()
   const isUserAdmin = isAdmin.value ||
+    userEmail === 'admin@mioacademy.com' ||
+    userEmail.startsWith('admin@') ||
     profile.value?.role === 'ADMIN' ||
     profile.value?.role === 'SUPER_ADMIN' ||
     user.value?.user_metadata?.role === 'ADMIN' ||

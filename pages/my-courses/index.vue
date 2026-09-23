@@ -36,10 +36,10 @@ const loadMyCourses = async () => {
                     id,
                     title,
                     slug,
-                    thumbnail,
+                    thumbnail:thumbnail_url,
                     profiles:instructor_id(name),
                     categories:category_id(name),
-                    sections(
+                    sections:course_sections(
                         id,
                         lessons(id),
                         quizzes(id)

@@ -60,14 +60,14 @@ const loadCourses = async () => {
                 id,
                 title,
                 slug,
-                thumbnail,
+                thumbnail:thumbnail_url,
                 price,
                 discount_price,
                 status,
                 moderation_notes,
                 created_at,
                 categories:category_id(name),
-                sections(
+                sections:course_sections(
                     id,
                     lessons(id),
                     quizzes(id)

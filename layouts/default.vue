@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { LogOut, BookOpen, HelpCircle, LayoutDashboard, Shield, GraduationCap, Menu, X } from 'lucide-vue-next'
+import { LogOut, BookOpen, HelpCircle, LayoutDashboard, Shield, GraduationCap, Menu, X, Database } from 'lucide-vue-next'
 
 const { user, profile, isAdmin, isInstructor, logout } = useAuthProfile()
 const isMobileMenuOpen = ref(false)
@@ -44,6 +44,15 @@ const isMobileMenuOpen = ref(false)
             >
               <GraduationCap class="w-3.5 h-3.5" />
               <span>Instructor Studio</span>
+            </NuxtLink>
+
+            <NuxtLink
+              v-if="isAdmin"
+              to="/admin/import"
+              class="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
+            >
+              <Database class="w-3.5 h-3.5" />
+              <span>Import SQL</span>
             </NuxtLink>
 
             <NuxtLink

@@ -5,7 +5,8 @@ import {
   CheckCircle2,
   XCircle,
   Eye,
-  AlertCircle
+  AlertCircle,
+  Database
 } from 'lucide-vue-next'
 import Swal from 'sweetalert2'
 import type { Course } from '~/types/database.types'
@@ -92,13 +93,23 @@ useHead({
 <template>
   <div class="py-10 bg-slate-50 min-h-screen">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="mb-8">
-        <div class="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 mb-1">
-          <Shield class="w-4 h-4" />
-          <span>PORTAL ADMIN</span>
+      <div class="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div class="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 mb-1">
+            <Shield class="w-4 h-4" />
+            <span>PORTAL ADMIN</span>
+          </div>
+          <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Moderasi & Kurasi Kursus</h1>
+          <p class="text-xs text-slate-500 mt-1">Tinjau kurikulum dan setujui penerbitan kursus dari para instruktur</p>
         </div>
-        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Moderasi & Kurasi Kursus</h1>
-        <p class="text-xs text-slate-500 mt-1">Tinjau kurikulum dan setujui penerbitan kursus dari para instruktur</p>
+
+        <NuxtLink
+          to="/admin/import"
+          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-100 transition self-start sm:self-auto"
+        >
+          <Database class="w-4 h-4" />
+          <span>Import Database MySQL</span>
+        </NuxtLink>
       </div>
 
       <div v-if="submittedCourses && submittedCourses.length > 0" class="space-y-4">

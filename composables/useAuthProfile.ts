@@ -39,11 +39,16 @@ export const useAuthProfile = () => {
   }
 
   const isAdmin = computed(() => {
-    return profile.value?.role === 'ADMIN' || profile.value?.role === 'SUPER_ADMIN'
+    return profile.value?.role === 'ADMIN' ||
+           profile.value?.role === 'SUPER_ADMIN' ||
+           user.value?.user_metadata?.role === 'ADMIN' ||
+           user.value?.user_metadata?.role === 'SUPER_ADMIN'
   })
 
   const isInstructor = computed(() => {
-    return profile.value?.role === 'INSTRUCTOR' || isAdmin.value
+    return profile.value?.role === 'INSTRUCTOR' ||
+           user.value?.user_metadata?.role === 'INSTRUCTOR' ||
+           isAdmin.value
   })
 
   const logout = async () => {

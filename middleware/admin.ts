@@ -1,6 +1,6 @@
 export default defineNuxtRouteMiddleware(async () => {
   const user = useSupabaseUser()
-  const { profile, fetchProfile } = useAuthProfile()
+  const { profile, fetchProfile, isAdmin } = useAuthProfile()
 
   if (!user.value) {
     return navigateTo('/login')
@@ -10,7 +10,13 @@ export default defineNuxtRouteMiddleware(async () => {
     await fetchProfile()
   }
 
-  if (!profile.value || (profile.value.role !== 'ADMIN' && profile.value.role !== 'SUPER_ADMIN')) {
+  const isUserAdmin = isAdmin.value ||
+    profile.value?.role === 'ADMIN' ||
+    profile.value?.role === 'SUPER_ADMIN' ||
+    user.value?.user_metadata?.role === 'ADMIN' ||
+    user.value?.user_metadata?.role === 'SUPER_ADMIN'
+
+  if (!isUserAdmin) {
     return navigateTo('/dashboard')
   }
 })

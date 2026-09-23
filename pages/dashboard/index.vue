@@ -8,7 +8,9 @@ import {
   Play,
   CheckCircle2,
   Receipt,
-  ArrowRight
+  ArrowRight,
+  Shield,
+  Database
 } from 'lucide-vue-next'
 import type { Enrollment, Certificate, Order } from '~/types/database.types'
 
@@ -17,7 +19,7 @@ definePageMeta({
 })
 
 const supabase = useSupabaseClient()
-const { user, profile } = useAuthProfile()
+const { user, profile, isAdmin, isInstructor } = useAuthProfile()
 const activeTab = ref<'courses' | 'certificates' | 'orders'>('courses')
 
 // Fetch student enrollments
@@ -87,26 +89,55 @@ useHead({
   <div class="py-10 bg-slate-50 min-h-screen">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <!-- Welcome Header -->
-      <div class="bg-gradient-to-r from-indigo-700 via-indigo-600 to-indigo-800 rounded-3xl p-6 sm:p-10 text-white shadow-xl shadow-indigo-100 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+      <div class="bg-gradient-to-r from-indigo-700 via-indigo-600 to-indigo-800 rounded-3xl p-6 sm:p-10 text-white shadow-xl shadow-indigo-100 mb-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div>
-          <span class="inline-block px-3 py-1 rounded-full bg-white/20 text-white text-xs font-semibold mb-2">
+          <span v-if="isAdmin" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/40 text-purple-100 text-xs font-bold mb-2">
+            <Shield class="w-3.5 h-3.5" />
+            <span>PORTAL ADMINISTRATOR</span>
+          </span>
+          <span v-else-if="isInstructor" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/40 text-indigo-100 text-xs font-bold mb-2">
+            <GraduationCap class="w-3.5 h-3.5" />
+            <span>PORTAL INSTRUKTUR</span>
+          </span>
+          <span v-else class="inline-block px-3 py-1 rounded-full bg-white/20 text-white text-xs font-semibold mb-2">
             Area Siswa
           </span>
+
           <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">
             Selamat Datang, {{ profile?.name || user?.email?.split('@')[0] }}!
           </h1>
           <p class="text-indigo-100 text-sm mt-1 max-w-xl">
-            Lanjutkan progres pembelajaran Anda dan raih sertifikat kompetensi hari ini.
+            {{ isAdmin ? 'Anda memiliki hak akses Administrator penuh untuk mengelola platform, moderasi kursus, dan import database.' : 'Lanjutkan progres pembelajaran Anda dan raih sertifikat kompetensi hari ini.' }}
           </p>
         </div>
 
-        <NuxtLink
-          to="/courses"
-          class="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-indigo-700 text-xs font-bold hover:bg-indigo-50 shadow-md transition self-start sm:self-auto"
-        >
-          <BookOpen class="w-4 h-4" />
-          <span>Jelajah Kursus Baru</span>
-        </NuxtLink>
+        <div class="flex flex-wrap gap-2.5 items-center self-start lg:self-auto">
+          <NuxtLink
+            v-if="isAdmin"
+            to="/admin/import"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 text-white text-xs font-bold hover:bg-purple-700 shadow-md transition"
+          >
+            <Database class="w-4 h-4" />
+            <span>Import Database SQL</span>
+          </NuxtLink>
+
+          <NuxtLink
+            v-if="isAdmin"
+            to="/admin/moderation"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition"
+          >
+            <Shield class="w-4 h-4" />
+            <span>Moderasi Kursus</span>
+          </NuxtLink>
+
+          <NuxtLink
+            to="/courses"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 text-xs font-bold hover:bg-indigo-50 shadow-md transition"
+          >
+            <BookOpen class="w-4 h-4" />
+            <span>Katalog Kursus</span>
+          </NuxtLink>
+        </div>
       </div>
 
       <!-- Navigation Tabs -->

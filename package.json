@@ -1,0 +1,26 @@
+{
+  "name": "mioacademy",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.47.0",
+    "@nuxtjs/supabase": "^2.0.10",
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "@supabase/supabase-js": "^2.117.1",
+    "lucide-vue-next": "^1.0.0",
+    "nuxt": "^4.5.2",
+    "sweetalert2": "^11.26.25",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.11"
+  }
+}

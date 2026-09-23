@@ -1,255 +1,464 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue';
+import { useRoute } from 'vue-router';
+import ToastContainer from '~/components/UI/ToastContainer.vue';
+import Button from '~/components/UI/Button.vue';
+import Badge from '~/components/UI/Badge.vue';
+import Modal from '~/components/UI/Modal.vue';
+import LoadingState from '~/components/UI/LoadingState.vue';
+import { useToast } from '~/composables/useToast';
 import {
-  Play,
-  CheckCircle2,
-  Circle,
-  Menu,
-  X,
-  Award,
-  ArrowLeft,
-  ChevronRight,
-  BookOpen
-} from 'lucide-vue-next'
-import Swal from 'sweetalert2'
-import type { Course, Lesson } from '~/types/database.types'
+    Play,
+    CheckCircle2,
+    Circle,
+    FileQuestion,
+    Video,
+    Award,
+    ChevronDown,
+    Menu,
+    X,
+    ArrowLeft,
+    Sparkles,
+} from 'lucide-vue-next';
 
 definePageMeta({
-  middleware: 'auth'
-})
+    layout: false, // Classroom has its own specialized fullscreen layout
+});
 
-const route = useRoute()
-const router = useRouter()
-const supabase = useSupabaseClient()
-const { user } = useAuthProfile()
-const slug = route.params.slug as string
+const route = useRoute();
+const slug = route.params.slug as string;
+const { user } = useAuthProfile();
+const supabase = useSupabaseClient();
+const toast = useToast();
 
-// Fetch course & curriculum
-const { data: course } = await useAsyncData(`learning_course_${slug}`, async () => {
-  const { data, error } = await supabase
-    .from('courses')
-    .select(`
-      *,
-      sections:course_sections(
-        id, title, sort_order,
-        lessons:lessons(id, title, slug, youtube_video_id, duration_seconds, is_preview, is_active, sort_order)
-      )
-    `)
-    .eq('slug', slug)
-    .single()
+const loading = ref(true);
+const course = ref<any>(null);
+const activeLessonState = ref<any>(null);
+const activeQuiz = ref<any>(null);
+const completedLessonIds = ref<number[]>([]);
+const isSidebarOpen = ref(true);
+const isCertModalOpen = ref(false);
+const activeLessonTab = ref('overview'); // 'overview' | 'qa'
 
-  if (error || !data) throw createError({ statusCode: 404, statusMessage: 'Kursus tidak ditemukan' })
+// Quiz solver state
+const selectedQuizAnswers = ref<Record<number, number>>({});
+const quizResult = ref<any>(null);
 
-  // Sort sections and lessons
-  if (data.sections) {
-    data.sections.sort((a: any, b: any) => a.sort_order - b.sort_order)
-    data.sections.forEach((sec: any) => {
-      if (sec.lessons) sec.lessons.sort((a: any, b: any) => a.sort_order - b.sort_order)
-    })
-  }
+const loadClassroomData = async () => {
+    loading.value = true;
+    try {
+        const { data, error } = await supabase
+            .from('courses')
+            .select(`
+                *,
+                categories:category_id(name),
+                profiles:instructor_id(name),
+                sections(
+                    *,
+                    lessons(*),
+                    quizzes(
+                        *,
+                        quiz_questions(
+                            *,
+                            quiz_options(*)
+                        )
+                    )
+                )
+            `)
+            .eq('slug', slug)
+            .single();
 
-  return data as Course
-})
+        if (error) throw error;
 
-// Fetch student progress
-const { data: progressList, refresh: refreshProgress } = await useAsyncData(`progress_${slug}`, async () => {
-  if (!user.value || !course.value) return []
-  const { data } = await supabase
-    .from('lesson_progress')
-    .select('lesson_id, is_completed')
-    .eq('user_id', user.value.id)
-    .eq('course_id', course.value.id)
+        // Sort sections & items
+        const sortedSections = (data.sections || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+        sortedSections.forEach((s: any) => {
+            s.lessons = (s.lessons || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+            s.quizzes = (s.quizzes || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+        });
+        data.sections = sortedSections;
+        course.value = data;
 
-  return data || []
-})
+        // Set default active lesson
+        if (sortedSections.length > 0 && sortedSections[0].lessons?.length > 0) {
+            activeLessonState.value = sortedSections[0].lessons[0];
+        }
 
-const completedLessonIds = computed(() => {
-  return new Set((progressList.value || []).filter(p => p.is_completed).map(p => p.lesson_id))
-})
+        // Load user progress
+        if (user.value) {
+            const { data: progressData } = await supabase
+                .from('lesson_progress')
+                .select('lesson_id')
+                .eq('user_id', user.value.id)
+                .eq('is_completed', true);
 
-// Flattened list of lessons
-const allLessons = computed<Lesson[]>(() => {
-  if (!course.value?.sections) return []
-  const list: Lesson[] = []
-  course.value.sections.forEach(sec => {
-    if (sec.lessons) list.push(...sec.lessons)
-  })
-  return list
-})
-
-// Active lesson selection
-const activeLessonIndex = ref(0)
-const activeLesson = computed(() => {
-  return allLessons.value[activeLessonIndex.value] || null
-})
-
-const isSidebarOpen = ref(true)
-const isCompleting = ref(false)
-
-const selectLesson = (lesson: Lesson) => {
-  const idx = allLessons.value.findIndex(l => l.id === lesson.id)
-  if (idx !== -1) {
-    activeLessonIndex.value = idx
-  }
-}
-
-const completeActiveLesson = async () => {
-  if (!activeLesson.value || !course.value) return
-  isCompleting.value = true
-
-  try {
-    const res: any = await $fetch('/api/learning/complete-lesson', {
-      method: 'POST',
-      body: {
-        course_id: course.value.id,
-        lesson_id: activeLesson.value.id
-      }
-    })
-
-    await refreshProgress()
-
-    if (res.is_course_complete) {
-      Swal.fire({
-        icon: 'success',
-        title: 'Selamat! Anda Lulus!',
-        text: 'Anda telah menyelesaikan seluruh materi kursus dan sertifikat resmi Anda telah diterbitkan.',
-        confirmButtonText: 'Lihat Sertifikat',
-        confirmButtonColor: '#4f46e5'
-      }).then(() => {
-        router.push(`/certificates/${res.certificate_code}`)
-      })
-    } else {
-      // Advance to next lesson if available
-      if (activeLessonIndex.value < allLessons.value.length - 1) {
-        activeLessonIndex.value++
-      }
+            if (progressData) {
+                completedLessonIds.value = progressData.map((p: any) => p.lesson_id);
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load classroom course:', err);
+    } finally {
+        loading.value = false;
     }
-  } catch (err: any) {
-    Swal.fire({
-      icon: 'error',
-      title: 'Oops...',
-      text: err.data?.statusMessage || 'Gagal menyimpan progres.'
-    })
-  } finally {
-    isCompleting.value = false
-  }
-}
+};
 
-useHead({
-  title: computed(() => `Belajar: ${course.value?.title || 'Kelas'} — MIO Learning Academy`)
-})
+const totalLessonsCount = computed(() => {
+    if (!course.value?.sections) return 0;
+    return course.value.sections.reduce((acc: number, s: any) => acc + (s.lessons?.length || 0), 0);
+});
+
+const progressPercentage = computed(() => {
+    if (totalLessonsCount.value === 0) return 0;
+    const completed = completedLessonIds.value.length;
+    return Math.min(100, Math.round((completed / totalLessonsCount.value) * 100));
+});
+
+const isLessonCompleted = (lessonId: number) => {
+    return completedLessonIds.value.includes(lessonId);
+};
+
+const selectLesson = (lesson: any) => {
+    activeQuiz.value = null;
+    quizResult.value = null;
+    activeLessonState.value = lesson;
+};
+
+const selectQuiz = (quiz: any) => {
+    activeLessonState.value = null;
+    activeQuiz.value = quiz;
+    quizResult.value = null;
+    selectedQuizAnswers.value = {};
+};
+
+const markLessonComplete = async () => {
+    if (!activeLessonState.value || !user.value) return;
+    try {
+        const lessonId = activeLessonState.value.id;
+        await supabase
+            .from('lesson_progress')
+            .upsert({
+                user_id: user.value.id,
+                lesson_id: lessonId,
+                is_completed: true,
+                completed_at: new Date().toISOString(),
+            }, { onConflict: 'user_id,lesson_id' });
+
+        if (!completedLessonIds.value.includes(lessonId)) {
+            completedLessonIds.value.push(lessonId);
+        }
+
+        // Update enrollment progress
+        if (course.value) {
+            await supabase
+                .from('enrollments')
+                .update({
+                    progress_percentage: progressPercentage.value,
+                    completed_at: progressPercentage.value === 100 ? new Date().toISOString() : null,
+                })
+                .eq('user_id', user.value.id)
+                .eq('course_id', course.value.id);
+        }
+
+        toast.success('Pelajaran berhasil diselesaikan!');
+
+        // Advance to next lesson
+        const allLessons = (course.value?.sections || []).flatMap((s: any) => s.lessons || []);
+        const idx = allLessons.findIndex((l: any) => l.id === lessonId);
+        if (idx !== -1 && idx < allLessons.length - 1) {
+            activeLessonState.value = allLessons[idx + 1];
+        }
+    } catch (err: any) {
+        toast.error(err.message || 'Gagal menandai pelajaran');
+    }
+};
+
+const submitQuiz = async () => {
+    if (!activeQuiz.value) return;
+    const questions = activeQuiz.value.quiz_questions || [];
+    let correctCount = 0;
+
+    questions.forEach((q: any) => {
+        const selectedOptId = selectedQuizAnswers.value[q.id];
+        const correctOpt = (q.quiz_options || []).find((o: any) => o.is_correct);
+        if (correctOpt && correctOpt.id === selectedOptId) {
+            correctCount++;
+        }
+    });
+
+    const score = Math.round((correctCount / (questions.length || 1)) * 100);
+    const passed = score >= (activeQuiz.value.passing_score || 80);
+
+    quizResult.value = {
+        score,
+        passed,
+        correctCount,
+        totalQuestions: questions.length,
+    };
+
+    if (passed) {
+        toast.success(`Selamat! Anda lulus kuis dengan nilai ${score}%!`);
+    } else {
+        toast.warning(`Nilai Anda ${score}%. Batas kelulusan adalah ${activeQuiz.value.passing_score}%. Silakan ulangi lagi.`);
+    }
+};
+
+onMounted(() => {
+    loadClassroomData();
+});
 </script>
 
 <template>
-  <div v-if="course" class="min-h-screen bg-slate-900 text-white flex flex-col">
-    <!-- Learning Header Bar -->
-    <header class="h-14 border-b border-slate-800 bg-slate-950 px-4 flex items-center justify-between gap-4">
-      <div class="flex items-center gap-4">
-        <NuxtLink to="/dashboard" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
-          <ArrowLeft class="w-5 h-5" />
-        </NuxtLink>
-        <span class="text-xs font-bold text-slate-300 truncate max-w-xs sm:max-w-md">{{ course.title }}</span>
-      </div>
+    <div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased">
+        <ToastContainer />
 
-      <div class="flex items-center gap-3">
-        <button
-          @click="isSidebarOpen = !isSidebarOpen"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition"
-        >
-          <BookOpen class="w-4 h-4" />
-          <span>{{ isSidebarOpen ? 'Sembunyikan Silabus' : 'Buka Silabus' }}</span>
-        </button>
-      </div>
-    </header>
-
-    <!-- Main Player Area & Sidebar -->
-    <div class="flex-1 flex overflow-hidden">
-      <!-- Player Center Screen -->
-      <div class="flex-1 flex flex-col overflow-y-auto">
-        <!-- Video Box -->
-        <div class="w-full bg-black aspect-video max-h-[70vh] flex items-center justify-center">
-          <iframe
-            v-if="activeLesson?.youtube_video_id"
-            :src="`https://www.youtube.com/embed/${activeLesson.youtube_video_id}?autoplay=1&rel=0`"
-            class="w-full h-full border-0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowfullscreen
-          ></iframe>
-          <div v-else class="text-center p-8 text-slate-500">
-            <Play class="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p class="text-sm">Video tidak tersedia</p>
-          </div>
+        <div v-if="loading" class="flex-1 flex items-center justify-center">
+            <LoadingState text="Mempersiapkan ruang belajar kelas..." />
         </div>
 
-        <!-- Lesson Meta & Completion Action -->
-        <div class="p-6 sm:p-8 max-w-4xl space-y-6">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
-            <div>
-              <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
-                Pelajaran {{ activeLessonIndex + 1 }} dari {{ allLessons.length }}
-              </span>
-              <h1 class="text-xl sm:text-2xl font-bold mt-1 text-white">{{ activeLesson?.title }}</h1>
-            </div>
+        <template v-else-if="course">
+            <!-- Classroom Top Navigation Bar -->
+            <header class="h-16 border-b border-slate-800 bg-slate-900 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
+                <div class="flex items-center gap-4 min-w-0">
+                    <NuxtLink
+                        to="/dashboard"
+                        class="flex items-center gap-1.5 rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition"
+                        title="Kembali ke Dashboard"
+                    >
+                        <ArrowLeft class="h-5 w-5" />
+                    </NuxtLink>
 
-            <button
-              @click="completeActiveLesson"
-              :disabled="isCompleting"
-              :class="[
-                'flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-xs shadow-md transition disabled:opacity-50',
-                completedLessonIds.has(activeLesson?.id)
-                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                  : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'
-              ]"
-            >
-              <CheckCircle2 class="w-4 h-4" />
-              <span>{{ completedLessonIds.has(activeLesson?.id) ? 'Selesai (Ulangi)' : 'Tandai Selesai & Lanjut' }}</span>
-            </button>
-          </div>
-
-          <div v-if="activeLesson?.description" class="prose prose-invert max-w-none text-slate-300 text-sm leading-relaxed">
-            <p>{{ activeLesson.description }}</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Curriculum Drawer / Sidebar -->
-      <aside
-        v-if="isSidebarOpen"
-        class="w-80 sm:w-96 border-l border-slate-800 bg-slate-950 flex flex-col h-full overflow-y-auto"
-      >
-        <div class="p-4 border-b border-slate-800 font-bold text-sm text-slate-200">
-          Daftar Silabus Kursus
-        </div>
-
-        <div class="divide-y divide-slate-800/80">
-          <div v-for="(sec, sIdx) in course.sections" :key="sec.id" class="p-3">
-            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider px-2 mb-2">
-              Modul {{ sIdx + 1 }}: {{ sec.title }}
-            </h3>
-
-            <div class="space-y-1">
-              <button
-                v-for="lesson in sec.lessons"
-                :key="lesson.id"
-                @click="selectLesson(lesson)"
-                :class="[
-                  'w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs transition',
-                  activeLesson?.id === lesson.id
-                    ? 'bg-indigo-600/20 text-indigo-400 font-bold border border-indigo-500/30'
-                    : 'text-slate-300 hover:bg-slate-900'
-                ]"
-              >
-                <div class="flex items-center gap-2.5 truncate">
-                  <CheckCircle2 v-if="completedLessonIds.has(lesson.id)" class="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <Circle v-else class="w-4 h-4 text-slate-600 flex-shrink-0" />
-                  <span class="truncate">{{ lesson.title }}</span>
+                    <div class="min-w-0">
+                        <p class="text-xs text-indigo-400 font-semibold truncate">{{ course.categories?.name || 'Kursus' }}</p>
+                        <h1 class="text-sm sm:text-base font-bold text-white truncate max-w-xs sm:max-w-md md:max-w-xl">
+                            {{ course.title }}
+                        </h1>
+                    </div>
                 </div>
-                <Play v-if="activeLesson?.id === lesson.id" class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
-              </button>
+
+                <!-- Progress Meter & Certificate Trigger -->
+                <div class="flex items-center gap-4 shrink-0">
+                    <button
+                        v-if="progressPercentage === 100"
+                        type="button"
+                        @click="isCertModalOpen = true"
+                        class="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 text-xs font-bold text-amber-300 hover:bg-amber-500/30 transition animate-pulse"
+                    >
+                        <Award class="h-4 w-4 text-amber-400" />
+                        <span class="hidden sm:inline">Klaim Sertifikat</span>
+                    </button>
+
+                    <!-- Progress Pill -->
+                    <div class="flex items-center gap-3">
+                        <div class="hidden sm:flex flex-col items-end">
+                            <span class="text-xs font-bold text-white">{{ progressPercentage }}% Selesai</span>
+                            <span class="text-[10px] text-slate-400">Progres Belajar</span>
+                        </div>
+                        <div class="h-2 w-20 sm:w-28 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                                class="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-500"
+                                :style="{ width: `${progressPercentage}%` }"
+                            ></div>
+                        </div>
+                    </div>
+
+                    <button
+                        type="button"
+                        @click="isSidebarOpen = !isSidebarOpen"
+                        class="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition"
+                    >
+                        <Menu v-if="!isSidebarOpen" class="h-5 w-5" />
+                        <X v-else class="h-5 w-5" />
+                    </button>
+                </div>
+            </header>
+
+            <!-- Main Classroom Layout: Player + Curriculum Sidebar -->
+            <div class="flex-1 flex min-h-0 relative">
+                <!-- Main Content Area: Video or Quiz -->
+                <main class="flex-1 flex flex-col min-w-0 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                    <div class="max-w-5xl w-full mx-auto space-y-6">
+                        <!-- VIDEO LESSON PLAYER -->
+                        <template v-if="activeLessonState">
+                            <!-- Responsive 16:9 Player -->
+                            <div class="aspect-video w-full rounded-3xl bg-black overflow-hidden shadow-2xl border border-slate-800">
+                                <iframe
+                                    v-if="activeLessonState.youtube_video_id"
+                                    :src="`https://www.youtube.com/embed/${activeLessonState.youtube_video_id}?rel=0&autoplay=1`"
+                                    :title="activeLessonState.title"
+                                    class="h-full w-full border-0"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowfullscreen
+                                ></iframe>
+                                <div v-else class="h-full w-full flex items-center justify-center text-xs text-slate-500">
+                                    Video materi ini sedang dipersiapkan.
+                                </div>
+                            </div>
+
+                            <!-- Lesson Action Toolbar -->
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-3xl bg-slate-900 border border-slate-800">
+                                <div class="space-y-1">
+                                    <div v-if="isLessonCompleted(activeLessonState.id)" class="flex items-center gap-2">
+                                        <Badge variant="success" size="sm">
+                                            ✓ Selesai Dipelajari
+                                        </Badge>
+                                    </div>
+                                    <h2 class="text-lg font-bold text-white">
+                                        {{ activeLessonState.title }}
+                                    </h2>
+                                </div>
+
+                                <Button
+                                    type="button"
+                                    @click="markLessonComplete"
+                                    variant="primary"
+                                    size="md"
+                                    class="shrink-0 shadow-lg shadow-indigo-500/20"
+                                >
+                                    <CheckCircle2 class="mr-2 h-4 w-4" />
+                                    <span>{{ isLessonCompleted(activeLessonState.id) ? 'Lanjut ke Materi Berikutnya' : 'Tandai Selesai & Lanjut' }}</span>
+                                </Button>
+                            </div>
+
+                            <!-- Lesson Notes & Summary -->
+                            <div class="p-6 rounded-3xl bg-slate-900/60 border border-slate-800/80 space-y-3">
+                                <h3 class="text-sm font-bold text-white">Rangkuman Materi & Catatan Penting</h3>
+                                <p class="text-xs text-slate-400 leading-relaxed whitespace-pre-line">
+                                    {{ activeLessonState.description || 'Pahami materi video di atas dengan cermat dan ikuti instruksi yang disampaikan oleh instruktur.' }}
+                                </p>
+                            </div>
+                        </template>
+
+                        <!-- QUIZ SOLVER VIEW -->
+                        <template v-else-if="activeQuiz">
+                            <div class="p-8 rounded-3xl bg-slate-900 border border-slate-800 space-y-6">
+                                <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                                    <div>
+                                        <Badge variant="purple" size="sm">EVALUASI PEMAHAMAN</Badge>
+                                        <h2 class="text-xl font-bold text-white mt-2">{{ activeQuiz.title }}</h2>
+                                        <p class="text-xs text-slate-400">Jawab seluruh pertanyaan berikut untuk menguji pemahaman materi Anda.</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="text-xs text-slate-400 block">Passing Score:</span>
+                                        <span class="text-lg font-black text-purple-400">{{ activeQuiz.passing_score }}%</span>
+                                    </div>
+                                </div>
+
+                                <!-- Questions List -->
+                                <div class="space-y-6">
+                                    <div
+                                        v-for="(q, qIdx) in activeQuiz.quiz_questions"
+                                        :key="q.id"
+                                        class="p-5 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-3"
+                                    >
+                                        <p class="text-sm font-bold text-white">
+                                            {{ qIdx + 1 }}. {{ q.question }}
+                                        </p>
+
+                                        <div class="space-y-2 pl-4">
+                                            <label
+                                                v-for="opt in q.quiz_options"
+                                                :key="opt.id"
+                                                class="flex items-center gap-3 p-3 rounded-xl border border-slate-700 hover:bg-slate-700/50 cursor-pointer transition text-xs"
+                                                :class="{ 'border-indigo-500 bg-indigo-950/40 text-indigo-200': selectedQuizAnswers[q.id] === opt.id }"
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    :name="`question_${q.id}`"
+                                                    :value="opt.id"
+                                                    v-model="selectedQuizAnswers[q.id]"
+                                                    class="text-indigo-600 focus:ring-0"
+                                                />
+                                                <span>{{ opt.option_text }}</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Quiz Result -->
+                                <div v-if="quizResult" class="p-6 rounded-2xl border text-center space-y-2" :class="quizResult.passed ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200' : 'bg-rose-950/40 border-rose-800 text-rose-200'">
+                                    <p class="text-base font-black">
+                                        {{ quizResult.passed ? '🎉 Selamat! Anda Lulus Kuis' : '⚠️ Belum Memenuhi Passing Score' }}
+                                    </p>
+                                    <p class="text-sm">
+                                        Nilai Anda: <strong>{{ quizResult.score }}%</strong> ({{ quizResult.correctCount }}/{{ quizResult.totalQuestions }} Soal Benar)
+                                    </p>
+                                </div>
+
+                                <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                                    <Button variant="primary" size="md" @click="submitQuiz">
+                                        Kirimkan Jawaban Kuis
+                                    </Button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </main>
+
+                <!-- Curriculum Sidebar Navigation -->
+                <aside
+                    v-if="isSidebarOpen"
+                    class="w-80 lg:w-96 border-l border-slate-800 bg-slate-900 flex flex-col shrink-0 overflow-y-auto"
+                >
+                    <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">
+                            Daftar Materi & Silabus
+                        </h3>
+                        <span class="text-xs font-mono text-indigo-400 font-bold">
+                            {{ completedLessonIds.length }}/{{ totalLessonsCount }} Selesai
+                        </span>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto p-3 space-y-4">
+                        <div v-for="(section, sIdx) in course.sections" :key="section.id" class="space-y-1">
+                            <div class="px-2 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                Modul {{ sIdx + 1 }}: {{ section.title }}
+                            </div>
+
+                            <!-- Lessons -->
+                            <button
+                                v-for="lesson in section.lessons"
+                                :key="lesson.id"
+                                type="button"
+                                @click="selectLesson(lesson)"
+                                class="w-full text-left p-2.5 rounded-xl transition flex items-center justify-between gap-3 text-xs"
+                                :class="[
+                                    activeLessonState?.id === lesson.id
+                                        ? 'bg-indigo-600 text-white font-bold'
+                                        : 'hover:bg-slate-800 text-slate-300'
+                                ]"
+                            >
+                                <div class="flex items-center gap-2.5 min-w-0">
+                                    <CheckCircle2 v-if="isLessonCompleted(lesson.id)" class="h-4 w-4 text-emerald-400 shrink-0" />
+                                    <Circle v-else class="h-4 w-4 text-slate-500 shrink-0" />
+                                    <span class="truncate">{{ lesson.title }}</span>
+                                </div>
+                                <span class="text-[10px] opacity-75 shrink-0">{{ lesson.duration_minutes || 10 }}m</span>
+                            </button>
+
+                            <!-- Quizzes -->
+                            <button
+                                v-for="quiz in section.quizzes"
+                                :key="quiz.id"
+                                type="button"
+                                @click="selectQuiz(quiz)"
+                                class="w-full text-left p-2.5 rounded-xl transition flex items-center justify-between gap-3 text-xs"
+                                :class="[
+                                    activeQuiz?.id === quiz.id
+                                        ? 'bg-purple-600 text-white font-bold'
+                                        : 'hover:bg-slate-800 text-purple-300'
+                                ]"
+                            >
+                                <div class="flex items-center gap-2.5 min-w-0">
+                                    <FileQuestion class="h-4 w-4 shrink-0" />
+                                    <span class="truncate">Kuis: {{ quiz.title }}</span>
+                                </div>
+                                <span class="text-[10px] opacity-75 shrink-0">{{ quiz.passing_score }}%</span>
+                            </button>
+                        </div>
+                    </div>
+                </aside>
             </div>
-          </div>
-        </div>
-      </aside>
+        </template>
     </div>
-  </div>
 </template>

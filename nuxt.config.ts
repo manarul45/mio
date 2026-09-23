@@ -3,7 +3,17 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
 
+  experimental: {
+    scanPageMeta: false
+  },
+
   css: ['~/assets/css/main.css'],
+
+  alias: {
+    '@/Components': './components',
+    '@/Layouts': './layouts',
+    '@/Composables': './composables'
+  },
 
   modules: [
     '@nuxtjs/supabase',

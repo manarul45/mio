@@ -28,6 +28,7 @@ import {
     ChevronDown,
     DollarSign,
     Sparkles,
+    GripVertical,
 } from 'lucide-vue-next';
 
 definePageMeta({
@@ -135,18 +136,23 @@ const openAddSection = () => {
     isSectionModalOpen.value = true;
 };
 
+const openEditSection = (section: any) => {
+    sectionForm.value = { id: section.id, title: section.title, description: section.description || '' };
+    isSectionModalOpen.value = true;
+};
+
 const saveSection = async () => {
     if (!sectionForm.value.title.trim()) return;
     try {
         if (sectionForm.value.id) {
             await supabase
-                .from('sections')
+                .from('course_sections')
                 .update({ title: sectionForm.value.title, description: sectionForm.value.description })
                 .eq('id', sectionForm.value.id);
         } else {
-            const nextOrder = course.value.sections.length + 1;
+            const nextOrder = (course.value.sections?.length || 0) + 1;
             await supabase
-                .from('sections')
+                .from('course_sections')
                 .insert({
                     course_id: courseId,
                     title: sectionForm.value.title,
@@ -171,11 +177,237 @@ const deleteSection = async (section: any) => {
     if (!ok) return;
 
     try {
-        await supabase.from('sections').delete().eq('id', section.id);
+        await supabase.from('course_sections').delete().eq('id', section.id);
         swal.toastSuccess('Modul berhasil dihapus');
         loadCourseDetails();
     } catch (err: any) {
         swal.toastError(err.message);
+    }
+};
+
+// REORDER & DRAG-AND-DROP HANDLERS (SECTIONS & UNIFIED SECTION ITEMS)
+const getSectionItems = (section: any) => {
+    const lessons = (section.lessons || []).map((l: any) => ({ ...l, item_type: 'lesson' }));
+    const quizzes = (section.quizzes || []).map((q: any) => ({ ...q, item_type: 'quiz' }));
+    return [...lessons, ...quizzes].sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+};
+
+// Drag and drop state for items (lessons & quizzes)
+const draggedItem = ref<any>(null);
+const dragOverSectionId = ref<string | number | null>(null);
+const dragOverItemIndex = ref<number | null>(null);
+
+const onDragStartItem = (event: DragEvent, section: any, item: any, index: number) => {
+    draggedItem.value = { sectionId: section.id, item, index };
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        try {
+            event.dataTransfer.setData('text/plain', JSON.stringify({ sectionId: section.id, itemId: item.id, itemType: item.item_type, index }));
+        } catch {}
+    }
+};
+
+const onDragOverItem = (event: DragEvent, section: any, index: number) => {
+    if (!draggedItem.value) return;
+    if (draggedItem.value.sectionId !== section.id) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+    }
+    dragOverSectionId.value = section.id;
+    dragOverItemIndex.value = index;
+};
+
+const onDragLeaveItem = (section: any, index: number) => {
+    if (dragOverSectionId.value === section.id && dragOverItemIndex.value === index) {
+        dragOverItemIndex.value = null;
+    }
+};
+
+const onDropItem = async (event: DragEvent, section: any, targetIndex: number) => {
+    event.preventDefault();
+    if (!draggedItem.value) return;
+    if (draggedItem.value.sectionId !== section.id) {
+        draggedItem.value = null;
+        dragOverItemIndex.value = null;
+        dragOverSectionId.value = null;
+        return;
+    }
+
+    const sourceIndex = draggedItem.value.index;
+    draggedItem.value = null;
+    dragOverItemIndex.value = null;
+    dragOverSectionId.value = null;
+
+    if (sourceIndex === targetIndex) return;
+
+    const items = getSectionItems(section);
+    const originalLessons = section.lessons ? [...section.lessons] : [];
+    const originalQuizzes = section.quizzes ? [...section.quizzes] : [];
+
+    const [movedItem] = items.splice(sourceIndex, 1);
+    items.splice(targetIndex, 0, movedItem);
+
+    items.forEach((item: any, idx: number) => {
+        const newSort = idx + 1;
+        if (item.item_type === 'lesson') {
+            const l = (section.lessons || []).find((les: any) => les.id === item.id);
+            if (l) l.sort_order = newSort;
+        } else if (item.item_type === 'quiz') {
+            const q = (section.quizzes || []).find((qz: any) => qz.id === item.id);
+            if (q) q.sort_order = newSort;
+        }
+    });
+
+    const payloadItems = items.map((it: any) => ({
+        id: it.id,
+        type: it.item_type,
+    }));
+
+    try {
+        await $fetch(`/api/instructor/sections/${section.id}/items/reorder`, {
+            method: 'POST',
+            body: { items: payloadItems },
+        });
+        swal.toastSuccess('Urutan materi berhasil diperbarui');
+    } catch (err: any) {
+        section.lessons = originalLessons;
+        section.quizzes = originalQuizzes;
+        swal.toastError('Gagal memperbarui urutan materi');
+    }
+};
+
+const onDragEndItem = () => {
+    draggedItem.value = null;
+    dragOverItemIndex.value = null;
+    dragOverSectionId.value = null;
+};
+
+// Drag and drop state for sections (modules)
+const draggedSection = ref<any>(null);
+const dragOverSectionIndex = ref<number | null>(null);
+
+const onDragStartSection = (event: DragEvent, section: any, index: number) => {
+    draggedSection.value = { section, index };
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+    }
+};
+
+const onDragOverSection = (event: DragEvent, index: number) => {
+    if (!draggedSection.value) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+    }
+    dragOverSectionIndex.value = index;
+};
+
+const onDragLeaveSection = (index: number) => {
+    if (dragOverSectionIndex.value === index) {
+        dragOverSectionIndex.value = null;
+    }
+};
+
+const onDropSection = async (event: DragEvent, targetIndex: number) => {
+    event.preventDefault();
+    if (!draggedSection.value) return;
+
+    const sourceIndex = draggedSection.value.index;
+    draggedSection.value = null;
+    dragOverSectionIndex.value = null;
+
+    if (sourceIndex === targetIndex || !course.value.sections) return;
+
+    const sections = [...course.value.sections];
+    const originalSections = [...course.value.sections];
+
+    const [movedSection] = sections.splice(sourceIndex, 1);
+    sections.splice(targetIndex, 0, movedSection);
+    course.value.sections = sections;
+
+    const sectionIds = sections.map((s: any) => s.id);
+    try {
+        await $fetch(`/api/instructor/courses/${courseId}/sections/reorder`, {
+            method: 'POST',
+            body: { section_ids: sectionIds },
+        });
+        swal.toastSuccess('Urutan modul berhasil diperbarui');
+    } catch (err: any) {
+        course.value.sections = originalSections;
+        swal.toastError('Gagal memperbarui urutan modul');
+    }
+};
+
+const onDragEndSection = () => {
+    draggedSection.value = null;
+    dragOverSectionIndex.value = null;
+};
+
+const moveSection = async (index: number, direction: 'up' | 'down') => {
+    if (!course.value.sections) return;
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= course.value.sections.length) return;
+
+    const sections = [...course.value.sections];
+    const originalSections = [...course.value.sections];
+
+    const temp = sections[index];
+    sections[index] = sections[targetIndex];
+    sections[targetIndex] = temp;
+    course.value.sections = sections;
+
+    const sectionIds = sections.map((s: any) => s.id);
+    try {
+        await $fetch(`/api/instructor/courses/${courseId}/sections/reorder`, {
+            method: 'POST',
+            body: { section_ids: sectionIds },
+        });
+        swal.toastSuccess('Urutan modul berhasil diperbarui');
+    } catch (err: any) {
+        course.value.sections = originalSections;
+        swal.toastError('Gagal memperbarui urutan modul');
+    }
+};
+
+const moveSectionItem = async (section: any, index: number, direction: 'up' | 'down') => {
+    const items = getSectionItems(section);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= items.length) return;
+
+    const originalLessons = section.lessons ? [...section.lessons] : [];
+    const originalQuizzes = section.quizzes ? [...section.quizzes] : [];
+
+    const temp = items[index];
+    items[index] = items[targetIndex];
+    items[targetIndex] = temp;
+
+    items.forEach((item: any, idx: number) => {
+        const newSort = idx + 1;
+        if (item.item_type === 'lesson') {
+            const l = (section.lessons || []).find((les: any) => les.id === item.id);
+            if (l) l.sort_order = newSort;
+        } else if (item.item_type === 'quiz') {
+            const q = (section.quizzes || []).find((qz: any) => qz.id === item.id);
+            if (q) q.sort_order = newSort;
+        }
+    });
+
+    const payloadItems = items.map((it: any) => ({
+        id: it.id,
+        type: it.item_type,
+    }));
+
+    try {
+        await $fetch(`/api/instructor/sections/${section.id}/items/reorder`, {
+            method: 'POST',
+            body: { items: payloadItems },
+        });
+        swal.toastSuccess('Urutan materi berhasil diperbarui');
+    } catch (err: any) {
+        section.lessons = originalLessons;
+        section.quizzes = originalQuizzes;
+        swal.toastError('Gagal memperbarui urutan materi');
     }
 };
 
@@ -746,23 +978,60 @@ onMounted(() => {
                     <div
                         v-for="(section, sIdx) in course.sections"
                         :key="section.id"
-                        class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4"
+                        :class="[
+                            'rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4 transition-all',
+                            dragOverSectionIndex === sIdx && draggedSection?.index !== sIdx ? 'ring-2 ring-indigo-500 ring-offset-4 bg-indigo-50/30 dark:bg-indigo-950/30' : '',
+                            draggedSection?.section?.id === section.id ? 'opacity-50 border-dashed border-indigo-400' : ''
+                        ]"
+                        @dragover="onDragOverSection($event, sIdx)"
+                        @dragleave="onDragLeaveSection(sIdx)"
+                        @drop="onDropSection($event, sIdx)"
                     >
                         <!-- Section Header -->
-                        <div class="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
-                            <div>
-                                <span class="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                                    Modul {{ sIdx + 1 }}
-                                </span>
-                                <h3 class="text-base font-bold text-slate-900 dark:text-white">
-                                    {{ section.title }}
-                                </h3>
-                                <p v-if="section.description" class="text-xs text-slate-500 mt-0.5">
-                                    {{ section.description }}
-                                </p>
+                        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                            <div class="flex items-center gap-2.5 min-w-0">
+                                <div
+                                    draggable="true"
+                                    @dragstart="onDragStartSection($event, section, sIdx)"
+                                    @dragend="onDragEndSection"
+                                    class="cursor-grab active:cursor-grabbing text-slate-300 hover:text-indigo-600 dark:text-slate-600 dark:hover:text-indigo-400 p-1 -ml-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition shrink-0"
+                                    title="Tahan dan geser (drag & drop) untuk memindahkan posisi modul"
+                                >
+                                    <GripVertical class="h-4 w-4" />
+                                </div>
+                                <div class="min-w-0">
+                                    <span class="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">Modul {{ sIdx + 1 }}</span>
+                                    <h3 class="text-base font-bold text-slate-900 dark:text-white truncate">
+                                        {{ section.title }}
+                                    </h3>
+                                    <p v-if="section.description" class="text-xs text-slate-500 mt-0.5">
+                                        {{ section.description }}
+                                    </p>
+                                </div>
                             </div>
 
                             <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-0.5 border-r border-slate-200 dark:border-slate-800 pr-2 mr-1">
+                                    <button
+                                        type="button"
+                                        @click="moveSection(sIdx, 'up')"
+                                        :disabled="sIdx === 0"
+                                        class="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-400 transition rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                                        title="Pindahkan Modul Ke Atas"
+                                    >
+                                        <ChevronUp class="h-4 w-4" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="moveSection(sIdx, 'down')"
+                                        :disabled="sIdx === course.sections.length - 1"
+                                        class="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-400 transition rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                                        title="Pindahkan Modul Ke Bawah"
+                                    >
+                                        <ChevronDown class="h-4 w-4" />
+                                    </button>
+                                </div>
+
                                 <Button variant="secondary" size="sm" @click="openAddLesson(section.id)">
                                     <Video class="mr-1.5 h-3.5 w-3.5 text-indigo-500" />
                                     <span>+ Video Materi</span>
@@ -775,6 +1044,15 @@ onMounted(() => {
 
                                 <button
                                     type="button"
+                                    @click="openEditSection(section)"
+                                    class="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-slate-800 transition"
+                                    title="Edit Modul"
+                                >
+                                    <Edit2 class="h-4 w-4" />
+                                </button>
+
+                                <button
+                                    type="button"
                                     @click="deleteSection(section)"
                                     class="p-2 rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
                                     title="Hapus Modul"
@@ -784,92 +1062,172 @@ onMounted(() => {
                             </div>
                         </div>
 
-                        <!-- Lessons & Quizzes within section -->
-                        <div class="space-y-2 pl-2 sm:pl-4">
-                            <!-- Lessons -->
-                            <div
-                                v-for="(lesson, lIdx) in section.lessons"
-                                :key="lesson.id"
-                                class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-100 dark:bg-slate-800/60 dark:border-slate-800 hover:border-slate-200 transition"
-                            >
-                                <div class="flex items-center gap-3 min-w-0">
-                                    <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400 shrink-0">
-                                        <Video class="h-4 w-4" />
-                                    </div>
-                                    <div class="min-w-0">
-                                        <div class="flex items-center gap-2">
-                                            <p class="text-xs font-bold text-slate-900 dark:text-white truncate">
-                                                {{ lIdx + 1 }}. {{ lesson.title }}
-                                            </p>
-                                            <Badge v-if="lesson.is_preview" variant="success" size="sm">
-                                                Gratis Preview
-                                            </Badge>
+                        <!-- Unified Lessons and Quizzes in Section -->
+                        <div class="space-y-2">
+                            <template v-for="(item, itemIdx) in getSectionItems(section)" :key="item.item_type + '-' + item.id">
+                                <!-- Video Lesson Item -->
+                                <div
+                                    v-if="item.item_type === 'lesson'"
+                                    draggable="true"
+                                    @dragstart="onDragStartItem($event, section, item, itemIdx)"
+                                    @dragend="onDragEndItem"
+                                    @dragover="onDragOverItem($event, section, itemIdx)"
+                                    @dragleave="onDragLeaveItem(section, itemIdx)"
+                                    @drop="onDropItem($event, section, itemIdx)"
+                                    :class="[
+                                        'flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-100 dark:bg-slate-800/40 dark:border-slate-800 hover:border-slate-200 transition-all group',
+                                        dragOverSectionId === section.id && dragOverItemIndex === itemIdx && draggedItem?.index !== itemIdx ? 'ring-2 ring-indigo-500 ring-offset-2 scale-[1.01] bg-indigo-50/80 dark:bg-indigo-950/50 shadow-md' : '',
+                                        draggedItem?.item?.id === item.id && draggedItem?.item?.item_type === 'lesson' ? 'opacity-40 border-dashed border-indigo-400' : ''
+                                    ]"
+                                >
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <!-- Drag Handle -->
+                                        <div
+                                            class="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-600 dark:text-slate-600 dark:hover:text-slate-300 p-1 -ml-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition shrink-0"
+                                            title="Tahan dan geser (drag & drop) untuk memindahkan urutan video"
+                                        >
+                                            <GripVertical class="h-4 w-4" />
                                         </div>
-                                        <p class="text-[11px] text-slate-400">
-                                            {{ lesson.duration_minutes || 10 }} Menit • {{ lesson.youtube_video_id ? 'ID: ' + lesson.youtube_video_id : 'Link video disiapkan' }}
-                                        </p>
+
+                                        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300 shrink-0">
+                                            <Video class="h-4 w-4" />
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <p class="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                                    {{ item.title }}
+                                                </p>
+                                                <Badge v-if="item.is_preview" variant="success" size="sm">
+                                                    Gratis Preview
+                                                </Badge>
+                                            </div>
+                                            <p class="text-[11px] text-slate-400">
+                                                {{ item.duration_minutes || 10 }} Menit • {{ item.youtube_video_id ? 'ID: ' + item.youtube_video_id : 'Link video disiapkan' }}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center gap-1 shrink-0">
+                                        <div class="flex items-center gap-0.5 border-r border-slate-200 dark:border-slate-700 pr-1.5 mr-1">
+                                            <button
+                                                type="button"
+                                                @click="moveSectionItem(section, itemIdx, 'up')"
+                                                :disabled="itemIdx === 0"
+                                                class="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-400 transition rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                                                title="Pindahkan Materi Ke Atas"
+                                            >
+                                                <ChevronUp class="h-3.5 w-3.5" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                @click="moveSectionItem(section, itemIdx, 'down')"
+                                                :disabled="itemIdx === getSectionItems(section).length - 1"
+                                                class="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-400 transition rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                                                title="Pindahkan Materi Ke Bawah"
+                                            >
+                                                <ChevronDown class="h-3.5 w-3.5" />
+                                            </button>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            @click="editLesson(item, section.id)"
+                                            class="p-1.5 text-slate-400 hover:text-indigo-600 transition rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                                            title="Edit Pelajaran"
+                                        >
+                                            <Edit2 class="h-4 w-4" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            @click="deleteLesson(item)"
+                                            class="p-1.5 text-slate-400 hover:text-rose-600 transition rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                                            title="Hapus Pelajaran"
+                                        >
+                                            <Trash2 class="h-4 w-4" />
+                                        </button>
                                     </div>
                                 </div>
 
-                                <div class="flex items-center gap-1">
-                                    <button
-                                        type="button"
-                                        @click="editLesson(lesson, section.id)"
-                                        class="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-white dark:hover:bg-slate-700"
-                                    >
-                                        <Edit2 class="h-3.5 w-3.5" />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        @click="deleteLesson(lesson)"
-                                        class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white dark:hover:bg-slate-700"
-                                    >
-                                        <Trash2 class="h-3.5 w-3.5" />
-                                    </button>
-                                </div>
-                            </div>
+                                <!-- Quiz Item -->
+                                <div
+                                    v-else-if="item.item_type === 'quiz'"
+                                    draggable="true"
+                                    @dragstart="onDragStartItem($event, section, item, itemIdx)"
+                                    @dragend="onDragEndItem"
+                                    @dragover="onDragOverItem($event, section, itemIdx)"
+                                    @dragleave="onDragLeaveItem(section, itemIdx)"
+                                    @drop="onDropItem($event, section, itemIdx)"
+                                    :class="[
+                                        'flex items-center justify-between p-3.5 rounded-2xl bg-purple-50/50 border border-purple-100 dark:bg-purple-950/20 dark:border-purple-900/40 transition-all group',
+                                        dragOverSectionId === section.id && dragOverItemIndex === itemIdx && draggedItem?.index !== itemIdx ? 'ring-2 ring-purple-500 ring-offset-2 scale-[1.01] bg-purple-100/70 dark:bg-purple-950/70 shadow-md' : '',
+                                        draggedItem?.item?.id === item.id && draggedItem?.item?.item_type === 'quiz' ? 'opacity-40 border-dashed border-purple-400' : ''
+                                    ]"
+                                >
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <!-- Drag Handle -->
+                                        <div
+                                            class="cursor-grab active:cursor-grabbing text-slate-300 hover:text-purple-600 dark:text-slate-600 dark:hover:text-purple-300 p-1 -ml-1 rounded hover:bg-purple-200/60 dark:hover:bg-purple-900/60 transition shrink-0"
+                                            title="Tahan dan geser (drag & drop) untuk memindahkan urutan kuis"
+                                        >
+                                            <GripVertical class="h-4 w-4" />
+                                        </div>
 
-                            <!-- Quizzes -->
-                            <div
-                                v-for="quiz in section.quizzes"
-                                :key="quiz.id"
-                                class="flex items-center justify-between p-3.5 rounded-2xl bg-purple-50/50 border border-purple-100 dark:bg-purple-950/20 dark:border-purple-900/40"
-                            >
-                                <div class="flex items-center gap-3 min-w-0">
-                                    <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400 shrink-0">
-                                        <FileQuestion class="h-4 w-4" />
+                                        <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400 shrink-0">
+                                            <FileQuestion class="h-4 w-4" />
+                                        </div>
+                                        <div class="min-w-0">
+                                            <p class="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                                Kuis: {{ item.title }}
+                                            </p>
+                                            <p class="text-[11px] text-purple-600 dark:text-purple-400 font-semibold">
+                                                Passing Score: {{ item.passing_score }}% • {{ (item.quiz_questions || []).length }} Butir Soal
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div class="min-w-0">
-                                        <p class="text-xs font-bold text-slate-900 dark:text-white truncate">
-                                            Kuis: {{ quiz.title }}
-                                        </p>
-                                        <p class="text-[11px] text-purple-600 dark:text-purple-400 font-semibold">
-                                            Passing Score: {{ quiz.passing_score }}% • {{ (quiz.quiz_questions || []).length }} Butir Soal
-                                        </p>
+
+                                    <div class="flex items-center gap-1 shrink-0">
+                                        <div class="flex items-center gap-0.5 border-r border-purple-200 dark:border-purple-800 pr-1.5 mr-1">
+                                            <button
+                                                type="button"
+                                                @click="moveSectionItem(section, itemIdx, 'up')"
+                                                :disabled="itemIdx === 0"
+                                                class="p-1 text-slate-400 hover:text-purple-600 disabled:opacity-30 disabled:hover:text-slate-400 transition rounded hover:bg-purple-100 dark:hover:bg-purple-900"
+                                                title="Pindahkan Kuis Ke Atas"
+                                            >
+                                                <ChevronUp class="h-3.5 w-3.5" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                @click="moveSectionItem(section, itemIdx, 'down')"
+                                                :disabled="itemIdx === getSectionItems(section).length - 1"
+                                                class="p-1 text-slate-400 hover:text-purple-600 disabled:opacity-30 disabled:hover:text-slate-400 transition rounded hover:bg-purple-100 dark:hover:bg-purple-900"
+                                                title="Pindahkan Kuis Ke Bawah"
+                                            >
+                                                <ChevronDown class="h-3.5 w-3.5" />
+                                            </button>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            @click="editQuiz(item, section.id)"
+                                            class="p-2 rounded-lg text-slate-400 hover:text-purple-600 hover:bg-white dark:hover:bg-slate-700 transition"
+                                            title="Lihat / Edit Soal Kuis"
+                                        >
+                                            <Edit2 class="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            @click="deleteQuiz(item)"
+                                            class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white dark:hover:bg-slate-700 transition"
+                                            title="Hapus Kuis"
+                                        >
+                                            <Trash2 class="h-3.5 w-3.5" />
+                                        </button>
                                     </div>
                                 </div>
+                            </template>
 
-                                <div class="flex items-center gap-1">
-                                    <button
-                                        type="button"
-                                        @click="editQuiz(quiz, section.id)"
-                                        class="p-2 rounded-lg text-slate-400 hover:text-purple-600 hover:bg-white dark:hover:bg-slate-700 transition"
-                                        title="Lihat / Edit Soal Kuis"
-                                    >
-                                        <Edit2 class="h-3.5 w-3.5" />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        @click="deleteQuiz(quiz)"
-                                        class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white dark:hover:bg-slate-700 transition"
-                                        title="Hapus Kuis"
-                                    >
-                                        <Trash2 class="h-3.5 w-3.5" />
-                                    </button>
-                                </div>
-                            </div>
-
-                            <p v-if="!section.lessons?.length && !section.quizzes?.length" class="text-xs text-slate-400 italic py-2">
+                            <p v-if="!getSectionItems(section).length" class="text-xs text-slate-400 italic py-2">
                                 Belum ada materi pada modul ini. Klik tombol di kanan atas untuk menambahkan video materi atau kuis.
                             </p>
                         </div>

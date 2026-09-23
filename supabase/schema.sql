@@ -492,7 +492,7 @@ CREATE POLICY "Public read published courses" ON public.courses FOR SELECT USING
     status = 'published' OR instructor_id = auth.uid() OR public.is_admin()
 );
 CREATE POLICY "Instructors can insert own courses" ON public.courses FOR INSERT WITH CHECK (
-    auth.uid() = instructor_id
+    auth.uid() = instructor_id OR public.is_admin()
 );
 CREATE POLICY "Instructors can update own courses" ON public.courses FOR UPDATE USING (
     auth.uid() = instructor_id OR public.is_admin()
@@ -524,6 +524,44 @@ CREATE POLICY "Manage lessons" ON public.lessons FOR ALL USING (
         WHERE s.id = section_id AND (c.instructor_id = auth.uid() OR public.is_admin())
     )
 );
+
+-- Quizzes & Questions & Options
+CREATE POLICY "Read quizzes" ON public.quizzes FOR SELECT USING (true);
+CREATE POLICY "Manage quizzes" ON public.quizzes FOR ALL USING (
+    public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.course_sections s
+        JOIN public.courses c ON c.id = s.course_id
+        WHERE s.id = section_id AND c.instructor_id = auth.uid()
+    )
+);
+
+CREATE POLICY "Read quiz questions" ON public.quiz_questions FOR SELECT USING (true);
+CREATE POLICY "Manage quiz questions" ON public.quiz_questions FOR ALL USING (
+    public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.quizzes q
+        JOIN public.course_sections s ON s.id = q.section_id
+        JOIN public.courses c ON c.id = s.course_id
+        WHERE q.id = quiz_id AND c.instructor_id = auth.uid()
+    )
+);
+
+CREATE POLICY "Read quiz options" ON public.quiz_options FOR SELECT USING (true);
+CREATE POLICY "Manage quiz options" ON public.quiz_options FOR ALL USING (
+    public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.quiz_questions qq
+        JOIN public.quizzes q ON q.id = qq.quiz_id
+        JOIN public.course_sections s ON s.id = q.section_id
+        JOIN public.courses c ON c.id = s.course_id
+        WHERE qq.id = question_id AND c.instructor_id = auth.uid()
+    )
+);
+
+-- Vouchers & Landing Pages
+CREATE POLICY "Public read active vouchers" ON public.vouchers FOR SELECT USING (is_active = true OR public.is_admin());
+CREATE POLICY "Admin manage vouchers" ON public.vouchers FOR ALL USING (public.is_admin());
+
+CREATE POLICY "Public read landing pages" ON public.landing_pages FOR SELECT USING (true);
+CREATE POLICY "Admin manage landing pages" ON public.landing_pages FOR ALL USING (public.is_admin());
 
 -- Orders & Enrollments
 CREATE POLICY "Users read own orders" ON public.orders FOR SELECT USING (auth.uid() = user_id OR public.is_admin());

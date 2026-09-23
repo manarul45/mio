@@ -40,7 +40,7 @@ const knownTables = [
     { name: 'profiles', label: 'Pengguna & Akun' },
     { name: 'courses', label: 'Data Kursus' },
     { name: 'categories', label: 'Kategori Kursus' },
-    { name: 'sections', label: 'Bab / Silabus' },
+    { name: 'course_sections', label: 'Bab / Silabus' },
     { name: 'lessons', label: 'Pelajaran Video' },
     { name: 'quizzes', label: 'Kuis Evaluasi' },
     { name: 'quiz_questions', label: 'Soal Kuis' },
@@ -52,8 +52,8 @@ const knownTables = [
     { name: 'quiz_attempts', label: 'Ujian Kuis Siswa' },
     { name: 'certificates', label: 'Sertifikat Kelulusan' },
     { name: 'vouchers', label: 'Kode Voucher Diskon' },
-    { name: 'whatsapp_templates', label: 'Template WhatsApp' },
-    { name: 'system_settings', label: 'Pengaturan Sistem' },
+    { name: 'landing_pages', label: 'Landing Page' },
+    { name: 'settings', label: 'Pengaturan Sistem' },
     { name: 'audit_logs', label: 'Audit Trail Log' },
 ];
 
@@ -62,18 +62,23 @@ const tableStats = ref<any[]>([]);
 const loadDatabaseStats = async () => {
     loading.value = true;
     try {
-        const statsList = [];
-        for (const tbl of knownTables) {
-            const { count } = await supabase
-                .from(tbl.name)
-                .select('*', { count: 'exact', head: true });
-            statsList.push({
-                name: tbl.name,
-                label: tbl.label,
-                rows: count || 0,
-            });
+        const res: any = await $fetch('/api/admin/database-stats');
+        if (res?.tables) {
+            tableStats.value = res.tables;
+        } else {
+            const statsList = [];
+            for (const tbl of knownTables) {
+                const { count } = await supabase
+                    .from(tbl.name)
+                    .select('*', { count: 'exact', head: true });
+                statsList.push({
+                    name: tbl.name,
+                    label: tbl.label,
+                    rows: count || 0,
+                });
+            }
+            tableStats.value = statsList;
         }
-        tableStats.value = statsList;
     } catch (err) {
         console.error('Failed to load database stats:', err);
     } finally {

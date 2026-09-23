@@ -24,6 +24,7 @@ export default defineNuxtConfig({
     redirect: false, // Custom role-based middleware handled in pages/layouts
     url: process.env.SUPABASE_URL || process.env.NUXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
     key: process.env.SUPABASE_KEY || process.env.NUXT_PUBLIC_SUPABASE_KEY || 'placeholder-anon-key',
+    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY,
     cookieOptions: {
       maxAge: 60 * 60 * 24 * 7, // 7 days
       sameSite: 'lax',

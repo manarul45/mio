@@ -68,6 +68,9 @@ export default defineEventHandler(async (event) => {
     data.sections.forEach((sec: any) => {
       if (sec.lessons) {
         sec.lessons.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+        sec.lessons.forEach((l: any) => {
+          l.duration_minutes = l.duration_minutes || (l.duration_seconds ? Math.ceil(l.duration_seconds / 60) : 10)
+        })
       }
       if (sec.quizzes) {
         sec.quizzes.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))

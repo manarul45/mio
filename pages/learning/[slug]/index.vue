@@ -36,6 +36,7 @@ const course = ref<any>(null);
 const activeLessonState = ref<any>(null);
 const activeQuiz = ref<any>(null);
 const completedLessonIds = ref<number[]>([]);
+const passedQuizIds = ref<number[]>([]);
 const isSidebarOpen = ref(true);
 const isCertModalOpen = ref(false);
 const activeLessonTab = ref('overview'); // 'overview' | 'qa'
@@ -44,50 +45,31 @@ const activeLessonTab = ref('overview'); // 'overview' | 'qa'
 const selectedQuizAnswers = ref<Record<number, number>>({});
 const quizResult = ref<any>(null);
 
-const loadClassroomData = async () => {
-    loading.value = true;
-    try {
-        const data = await $fetch<any>(`/api/learning/${slug}`);
-        course.value = data;
-
-        const sortedSections = data.sections || [];
-        // Set default active lesson
-        if (sortedSections.length > 0 && sortedSections[0].lessons?.length > 0) {
-            activeLessonState.value = sortedSections[0].lessons[0];
-        }
-
-        // Load user progress
-        if (user.value) {
-            const { data: progressData } = await supabase
-                .from('lesson_progress')
-                .select('lesson_id')
-                .eq('user_id', user.value.id)
-                .eq('is_completed', true);
-
-            if (progressData) {
-                completedLessonIds.value = progressData.map((p: any) => p.lesson_id);
-            }
-        }
-    } catch (err) {
-        console.error('Failed to load classroom course:', err);
-    } finally {
-        loading.value = false;
-    }
+const getSortedSectionItems = (section: any) => {
+    const lessons = (section?.lessons || []).map((l: any) => ({ ...l, item_type: 'lesson' }));
+    const quizzes = (section?.quizzes || []).map((q: any) => ({ ...q, item_type: 'quiz' }));
+    return [...lessons, ...quizzes].sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
 };
 
-const totalLessonsCount = computed(() => {
-    if (!course.value?.sections) return 0;
-    return course.value.sections.reduce((acc: number, s: any) => acc + (s.lessons?.length || 0), 0);
+const allCurriculumItems = computed(() => {
+    if (!course.value?.sections) return [];
+    return course.value.sections.flatMap((s: any) => getSortedSectionItems(s));
 });
 
+const totalItemsCount = computed(() => allCurriculumItems.value.length);
+
 const progressPercentage = computed(() => {
-    if (totalLessonsCount.value === 0) return 0;
-    const completed = completedLessonIds.value.length;
-    return Math.min(100, Math.round((completed / totalLessonsCount.value) * 100));
+    if (totalItemsCount.value === 0) return 0;
+    const completed = completedLessonIds.value.length + passedQuizIds.value.length;
+    return Math.min(100, Math.round((completed / totalItemsCount.value) * 100));
 });
 
 const isLessonCompleted = (lessonId: number) => {
     return completedLessonIds.value.includes(lessonId);
+};
+
+const isQuizPassed = (quizId: number) => {
+    return passedQuizIds.value.includes(quizId);
 };
 
 const selectLesson = (lesson: any) => {
@@ -101,6 +83,70 @@ const selectQuiz = (quiz: any) => {
     activeQuiz.value = quiz;
     quizResult.value = null;
     selectedQuizAnswers.value = {};
+};
+
+const advanceToNextItem = () => {
+    const all = allCurriculumItems.value;
+    const currentId = activeLessonState.value ? activeLessonState.value.id : activeQuiz.value?.id;
+    const currentType = activeLessonState.value ? 'lesson' : 'quiz';
+    const currentIdx = all.findIndex((item: any) => item.id === currentId && item.item_type === currentType);
+
+    if (currentIdx !== -1 && currentIdx < all.length - 1) {
+        const nextItem = all[currentIdx + 1];
+        if (nextItem.item_type === 'lesson') {
+            selectLesson(nextItem);
+        } else if (nextItem.item_type === 'quiz') {
+            selectQuiz(nextItem);
+        }
+    }
+};
+
+const loadClassroomData = async () => {
+    loading.value = true;
+    try {
+        const data = await $fetch<any>(`/api/learning/${slug}`);
+        course.value = data;
+
+        const sortedSections = data.sections || [];
+        // Set default active item (lesson or quiz)
+        if (sortedSections.length > 0) {
+            const firstItems = getSortedSectionItems(sortedSections[0]);
+            if (firstItems.length > 0) {
+                if (firstItems[0].item_type === 'lesson') {
+                    activeLessonState.value = firstItems[0];
+                } else if (firstItems[0].item_type === 'quiz') {
+                    activeQuiz.value = firstItems[0];
+                }
+            }
+        }
+
+        // Load user progress
+        if (user.value) {
+            const { data: progressData } = await supabase
+                .from('lesson_progress')
+                .select('lesson_id')
+                .eq('user_id', user.value.id)
+                .eq('is_completed', true);
+
+            if (progressData) {
+                completedLessonIds.value = progressData.map((p: any) => p.lesson_id);
+            }
+
+            const { data: quizAttemptsData } = await supabase
+                .from('quiz_attempts')
+                .select('quiz_id')
+                .eq('user_id', user.value.id)
+                .eq('passed', true);
+
+            if (quizAttemptsData) {
+                passedQuizIds.value = quizAttemptsData.map((a: any) => a.quiz_id);
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load classroom course:', err);
+    } finally {
+        loading.value = false;
+    }
 };
 
 const markLessonComplete = async () => {
@@ -133,13 +179,7 @@ const markLessonComplete = async () => {
         }
 
         toast.success('Pelajaran berhasil diselesaikan!');
-
-        // Advance to next lesson
-        const allLessons = (course.value?.sections || []).flatMap((s: any) => s.lessons || []);
-        const idx = allLessons.findIndex((l: any) => l.id === lessonId);
-        if (idx !== -1 && idx < allLessons.length - 1) {
-            activeLessonState.value = allLessons[idx + 1];
-        }
+        advanceToNextItem();
     } catch (err: any) {
         toast.error(err.message || 'Gagal menandai pelajaran');
     }
@@ -169,6 +209,35 @@ const submitQuiz = async () => {
     };
 
     if (passed) {
+        if (!passedQuizIds.value.includes(activeQuiz.value.id)) {
+            passedQuizIds.value.push(activeQuiz.value.id);
+        }
+        if (user.value) {
+            try {
+                await supabase.from('quiz_attempts').insert({
+                    user_id: user.value.id,
+                    quiz_id: activeQuiz.value.id,
+                    score_percentage: score,
+                    passed: true,
+                    completed_at: new Date().toISOString(),
+                });
+            } catch {}
+        }
+
+        // Update enrollment progress
+        if (course.value && user.value) {
+            try {
+                await supabase
+                    .from('enrollments')
+                    .update({
+                        progress_percentage: progressPercentage.value,
+                        completed_at: progressPercentage.value === 100 ? new Date().toISOString() : null,
+                    })
+                    .eq('user_id', user.value.id)
+                    .eq('course_id', course.value.id);
+            } catch {}
+        }
+
         toast.success(`Selamat! Anda lulus kuis dengan nilai ${score}%!`);
     } else {
         toast.warning(`Nilai Anda ${score}%. Batas kelulusan adalah ${activeQuiz.value.passing_score}%. Silakan ulangi lagi.`);
@@ -355,16 +424,27 @@ onMounted(() => {
                                 </div>
 
                                 <!-- Quiz Result -->
-                                <div v-if="quizResult" class="p-6 rounded-2xl border text-center space-y-2" :class="quizResult.passed ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200' : 'bg-rose-950/40 border-rose-800 text-rose-200'">
+                                <div v-if="quizResult" class="p-6 rounded-2xl border text-center space-y-3" :class="quizResult.passed ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200' : 'bg-rose-950/40 border-rose-800 text-rose-200'">
                                     <p class="text-base font-black">
                                         {{ quizResult.passed ? '🎉 Selamat! Anda Lulus Kuis' : '⚠️ Belum Memenuhi Passing Score' }}
                                     </p>
                                     <p class="text-sm">
                                         Nilai Anda: <strong>{{ quizResult.score }}%</strong> ({{ quizResult.correctCount }}/{{ quizResult.totalQuestions }} Soal Benar)
                                     </p>
+                                    <div v-if="quizResult.passed" class="pt-2 flex justify-center">
+                                        <Button
+                                            type="button"
+                                            variant="primary"
+                                            size="md"
+                                            @click="advanceToNextItem"
+                                            class="shadow-lg shadow-indigo-500/20"
+                                        >
+                                            <span>Lanjut ke Materi Berikutnya &rarr;</span>
+                                        </Button>
+                                    </div>
                                 </div>
 
-                                <div v-if="activeQuiz.quiz_questions && activeQuiz.quiz_questions.length > 0" class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                                <div v-if="activeQuiz.quiz_questions && activeQuiz.quiz_questions.length > 0 && !quizResult?.passed" class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
                                     <Button variant="primary" size="md" @click="submitQuiz">
                                         Kirimkan Jawaban Kuis
                                     </Button>
@@ -379,61 +459,74 @@ onMounted(() => {
                     v-if="isSidebarOpen"
                     class="w-80 lg:w-96 border-l border-slate-800 bg-slate-900 flex flex-col shrink-0 overflow-y-auto"
                 >
-                    <div class="p-4 border-b border-slate-800 flex items-center justify-between">
-                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">
-                            Daftar Materi & Silabus
-                        </h3>
-                        <span class="text-xs font-mono text-indigo-400 font-bold">
-                            {{ completedLessonIds.length }}/{{ totalLessonsCount }} Selesai
-                        </span>
+                    <div class="p-4 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-slate-900 z-10">
+                        <div>
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">
+                                Daftar Materi & Silabus
+                            </h3>
+                            <span class="text-xs font-mono text-indigo-400 font-bold">
+                                {{ completedLessonIds.length + passedQuizIds.length }}/{{ totalItemsCount }} Selesai
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            @click="isSidebarOpen = false"
+                            class="p-1.5 rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition lg:hidden"
+                            title="Tutup Silabus"
+                        >
+                            <X class="h-4 w-4" />
+                        </button>
                     </div>
 
                     <div class="flex-1 overflow-y-auto p-3 space-y-4">
                         <div v-for="(section, sIdx) in course.sections" :key="section.id" class="space-y-1">
-                            <div class="px-2 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                                Modul {{ sIdx + 1 }}: {{ section.title }}
+                            <div class="px-2 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                {{ section.title }}
                             </div>
 
-                            <!-- Lessons -->
-                            <button
-                                v-for="lesson in section.lessons"
-                                :key="lesson.id"
-                                type="button"
-                                @click="selectLesson(lesson)"
-                                class="w-full text-left p-2.5 rounded-xl transition flex items-center justify-between gap-3 text-xs"
-                                :class="[
-                                    activeLessonState?.id === lesson.id
-                                        ? 'bg-indigo-600 text-white font-bold'
-                                        : 'hover:bg-slate-800 text-slate-300'
-                                ]"
-                            >
-                                <div class="flex items-center gap-2.5 min-w-0">
-                                    <CheckCircle2 v-if="isLessonCompleted(lesson.id)" class="h-4 w-4 text-emerald-400 shrink-0" />
-                                    <Circle v-else class="h-4 w-4 text-slate-500 shrink-0" />
-                                    <span class="truncate">{{ lesson.title }}</span>
-                                </div>
-                                <span class="text-[10px] opacity-75 shrink-0">{{ lesson.duration_minutes || 10 }}m</span>
-                            </button>
+                            <template v-for="item in getSortedSectionItems(section)" :key="item.item_type + '-' + item.id">
+                                <!-- Lesson Item -->
+                                <button
+                                    v-if="item.item_type === 'lesson'"
+                                    type="button"
+                                    @click="selectLesson(item)"
+                                    class="w-full text-left p-2.5 rounded-xl transition flex items-center justify-between gap-3 text-xs"
+                                    :class="[
+                                        activeLessonState?.id === item.id
+                                            ? 'bg-indigo-600 text-white font-bold shadow-md shadow-indigo-600/30'
+                                            : 'hover:bg-slate-800 text-slate-300'
+                                    ]"
+                                >
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <CheckCircle2 v-if="isLessonCompleted(item.id)" class="h-4 w-4 text-emerald-400 shrink-0" />
+                                        <Circle v-else class="h-4 w-4 text-slate-500 shrink-0" />
+                                        <span class="truncate">{{ item.title }}</span>
+                                    </div>
+                                    <span class="text-[10px] opacity-75 shrink-0">{{ item.duration_minutes || 10 }}m</span>
+                                </button>
 
-                            <!-- Quizzes -->
-                            <button
-                                v-for="quiz in section.quizzes"
-                                :key="quiz.id"
-                                type="button"
-                                @click="selectQuiz(quiz)"
-                                class="w-full text-left p-2.5 rounded-xl transition flex items-center justify-between gap-3 text-xs"
-                                :class="[
-                                    activeQuiz?.id === quiz.id
-                                        ? 'bg-purple-600 text-white font-bold'
-                                        : 'hover:bg-slate-800 text-purple-300'
-                                ]"
-                            >
-                                <div class="flex items-center gap-2.5 min-w-0">
-                                    <FileQuestion class="h-4 w-4 shrink-0" />
-                                    <span class="truncate">Kuis: {{ quiz.title }}</span>
-                                </div>
-                                <span class="text-[10px] opacity-75 shrink-0">{{ quiz.passing_score }}%</span>
-                            </button>
+                                <!-- Quiz Item -->
+                                <button
+                                    v-else-if="item.item_type === 'quiz'"
+                                    type="button"
+                                    @click="selectQuiz(item)"
+                                    class="w-full text-left p-2.5 rounded-xl transition flex items-center justify-between gap-3 text-xs border"
+                                    :class="[
+                                        activeQuiz?.id === item.id
+                                            ? 'bg-purple-600 text-white font-bold shadow-md border-purple-500'
+                                            : 'bg-purple-950/20 text-purple-300 border-purple-900/40 hover:bg-purple-900/30'
+                                    ]"
+                                >
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <FileQuestion class="h-4 w-4 shrink-0" :class="activeQuiz?.id === item.id ? 'text-white' : 'text-purple-400'" />
+                                        <span class="truncate">Kuis: {{ item.title }}</span>
+                                    </div>
+                                    <Badge v-if="isQuizPassed(item.id)" variant="success" size="sm">
+                                        ✓ Lulus
+                                    </Badge>
+                                    <span v-else class="text-[10px] opacity-75 shrink-0">{{ item.passing_score }}%</span>
+                                </button>
+                            </template>
                         </div>
                     </div>
                 </aside>

@@ -111,33 +111,8 @@ const loadCourseDetails = async () => {
         const { data: catData } = await supabase.from('categories').select('*').order('name');
         categories.value = catData || [];
 
-        const { data, error } = await supabase
-            .from('courses')
-            .select(`
-                *,
-                sections:course_sections(
-                    *,
-                    lessons(*),
-                    quizzes(
-                        *,
-                        quiz_questions(
-                            *,
-                            quiz_options(*)
-                        )
-                    )
-                )
-            `)
-            .eq('id', courseId)
-            .single();
-
-        if (error) throw error;
-
-        // Sort sections and their lessons
-        const sortedSections = (data.sections || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-        sortedSections.forEach((s: any) => {
-            s.lessons = (s.lessons || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-            s.quizzes = (s.quizzes || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-        });
+        const data: any = await $fetch(`/api/instructor/courses/${courseId}`);
+        const sortedSections = data.sections || [];
 
         course.value = {
             ...data,
@@ -296,11 +271,12 @@ const openAddQuiz = (sectionId: string) => {
         passing_score: 80,
         questions: [
             {
+                id: null,
                 question: '',
                 explanation: '',
                 options: [
-                    { option_text: '', is_correct: true },
-                    { option_text: '', is_correct: false },
+                    { id: null, option_text: '', is_correct: true },
+                    { id: null, option_text: '', is_correct: false },
                 ]
             }
         ]
@@ -308,13 +284,70 @@ const openAddQuiz = (sectionId: string) => {
     isQuizModalOpen.value = true;
 };
 
+const editQuiz = (quiz: any, sectionId: string) => {
+    activeSectionIdForQuiz.value = sectionId;
+    quizForm.value = {
+        id: quiz.id,
+        title: quiz.title,
+        passing_score: quiz.passing_score || 80,
+        questions: (quiz.quiz_questions && quiz.quiz_questions.length > 0)
+            ? quiz.quiz_questions.map((q: any) => ({
+                id: q.id,
+                question: q.question_text || q.question || '',
+                explanation: q.explanation || '',
+                options: (q.quiz_options && q.quiz_options.length > 0)
+                    ? q.quiz_options.map((opt: any) => ({
+                        id: opt.id,
+                        option_text: opt.option_text || '',
+                        is_correct: !!opt.is_correct
+                    }))
+                    : [
+                        { id: null, option_text: '', is_correct: true },
+                        { id: null, option_text: '', is_correct: false },
+                    ]
+            }))
+            : [
+                {
+                    id: null,
+                    question: '',
+                    explanation: '',
+                    options: [
+                        { id: null, option_text: '', is_correct: true },
+                        { id: null, option_text: '', is_correct: false },
+                    ]
+                }
+            ]
+    };
+    isQuizModalOpen.value = true;
+};
+
+const deleteQuiz = async (quiz: any) => {
+    const confirmed = await swal.confirmDialog({
+        title: 'Hapus Kuis?',
+        text: `Apakah Anda yakin ingin menghapus kuis "${quiz.title}" beserta seluruh soalnya?`,
+        confirmButtonText: 'Ya, Hapus Kuis',
+        confirmButtonColor: '#e11d48',
+    });
+
+    if (confirmed) {
+        try {
+            await supabase.from('quizzes').delete().eq('id', quiz.id);
+            swal.toastSuccess('Kuis berhasil dihapus!');
+            loadCourseDetails();
+        } catch (err: any) {
+            swal.toastError(err.message || 'Gagal menghapus kuis');
+        }
+    }
+};
+
 const addQuizQuestion = () => {
     quizForm.value.questions.push({
+        id: null,
         question: '',
         explanation: '',
         options: [
-            { option_text: '', is_correct: true },
-            { option_text: '', is_correct: false },
+            { id: null, option_text: '', is_correct: true },
+            { id: null, option_text: '', is_correct: false },
         ]
     });
 };
@@ -324,7 +357,7 @@ const removeQuizQuestion = (qIdx: number) => {
 };
 
 const addQuizOption = (qIdx: number) => {
-    quizForm.value.questions[qIdx].options.push({ option_text: '', is_correct: false });
+    quizForm.value.questions[qIdx].options.push({ id: null, option_text: '', is_correct: false });
 };
 
 const removeQuizOption = (qIdx: number, oIdx: number) => {
@@ -332,7 +365,7 @@ const removeQuizOption = (qIdx: number, oIdx: number) => {
 };
 
 const setOptionCorrect = (qIdx: number, oIdx: number) => {
-    quizForm.value.questions[qIdx].options.forEach((opt, idx) => {
+    quizForm.value.questions[qIdx].options.forEach((opt: any, idx: number) => {
         opt.is_correct = idx === oIdx;
     });
 };
@@ -340,22 +373,41 @@ const setOptionCorrect = (qIdx: number, oIdx: number) => {
 const saveQuiz = async () => {
     if (!quizForm.value.title.trim() || !activeSectionIdForQuiz.value) return;
     try {
-        const currentSection = course.value.sections.find((s: any) => s.id === activeSectionIdForQuiz.value);
-        const nextOrder = (currentSection?.quizzes?.length || 0) + 1;
+        let quizId = quizForm.value.id;
 
-        // Insert Quiz
-        const { data: qData, error: qErr } = await supabase
-            .from('quizzes')
-            .insert({
-                section_id: activeSectionIdForQuiz.value,
-                title: quizForm.value.title,
-                passing_score: quizForm.value.passing_score,
-                sort_order: nextOrder,
-            })
-            .select()
-            .single();
+        if (quizId) {
+            // Update existing quiz
+            const { error: uErr } = await supabase
+                .from('quizzes')
+                .update({
+                    title: quizForm.value.title,
+                    passing_score: quizForm.value.passing_score,
+                })
+                .eq('id', quizId);
 
-        if (qErr) throw qErr;
+            if (uErr) throw uErr;
+
+            // Delete old questions to re-insert cleanly
+            await supabase.from('quiz_questions').delete().eq('quiz_id', quizId);
+        } else {
+            // Insert new quiz
+            const currentSection = course.value.sections.find((s: any) => s.id === activeSectionIdForQuiz.value);
+            const nextOrder = (currentSection?.quizzes?.length || 0) + 1;
+
+            const { data: qData, error: qErr } = await supabase
+                .from('quizzes')
+                .insert({
+                    section_id: activeSectionIdForQuiz.value,
+                    title: quizForm.value.title,
+                    passing_score: quizForm.value.passing_score,
+                    sort_order: nextOrder,
+                })
+                .select()
+                .single();
+
+            if (qErr) throw qErr;
+            quizId = qData.id;
+        }
 
         // Insert Questions & Options
         for (let i = 0; i < quizForm.value.questions.length; i++) {
@@ -365,9 +417,9 @@ const saveQuiz = async () => {
             const { data: questData, error: questErr } = await supabase
                 .from('quiz_questions')
                 .insert({
-                    quiz_id: qData.id,
-                    question: q.question,
-                    explanation: q.explanation,
+                    quiz_id: quizId,
+                    question_text: q.question,
+                    explanation: q.explanation || null,
                     sort_order: i + 1,
                 })
                 .select()
@@ -375,7 +427,7 @@ const saveQuiz = async () => {
 
             if (questErr) throw questErr;
 
-            const optionsPayload = q.options.map((opt, optIdx) => ({
+            const optionsPayload = q.options.map((opt: any, optIdx: number) => ({
                 question_id: questData.id,
                 option_text: opt.option_text,
                 is_correct: opt.is_correct,
@@ -386,7 +438,7 @@ const saveQuiz = async () => {
         }
 
         isQuizModalOpen.value = false;
-        swal.toastSuccess('Kuis berhasil ditambahkan!');
+        swal.toastSuccess(quizForm.value.id ? 'Kuis berhasil diperbarui!' : 'Kuis berhasil ditambahkan!');
         loadCourseDetails();
     } catch (err: any) {
         swal.toastError(err.message || 'Gagal menyimpan kuis');
@@ -792,13 +844,28 @@ onMounted(() => {
                                             Kuis: {{ quiz.title }}
                                         </p>
                                         <p class="text-[11px] text-purple-600 dark:text-purple-400 font-semibold">
-                                            Passing Score: {{ quiz.passing_score }}%
+                                            Passing Score: {{ quiz.passing_score }}% • {{ (quiz.quiz_questions || []).length }} Butir Soal
                                         </p>
                                     </div>
                                 </div>
 
                                 <div class="flex items-center gap-1">
-                                    <span class="text-xs text-slate-400 pr-2">Tersimpan</span>
+                                    <button
+                                        type="button"
+                                        @click="editQuiz(quiz, section.id)"
+                                        class="p-2 rounded-lg text-slate-400 hover:text-purple-600 hover:bg-white dark:hover:bg-slate-700 transition"
+                                        title="Lihat / Edit Soal Kuis"
+                                    >
+                                        <Edit2 class="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="deleteQuiz(quiz)"
+                                        class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white dark:hover:bg-slate-700 transition"
+                                        title="Hapus Kuis"
+                                    >
+                                        <Trash2 class="h-3.5 w-3.5" />
+                                    </button>
                                 </div>
                             </div>
 

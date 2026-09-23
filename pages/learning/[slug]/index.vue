@@ -47,38 +47,10 @@ const quizResult = ref<any>(null);
 const loadClassroomData = async () => {
     loading.value = true;
     try {
-        const { data, error } = await supabase
-            .from('courses')
-            .select(`
-                *,
-                categories:category_id(name),
-                profiles:instructor_id(name),
-                sections:course_sections(
-                    *,
-                    lessons(*),
-                    quizzes(
-                        *,
-                        quiz_questions(
-                            *,
-                            quiz_options(*)
-                        )
-                    )
-                )
-            `)
-            .eq('slug', slug)
-            .single();
-
-        if (error) throw error;
-
-        // Sort sections & items
-        const sortedSections = (data.sections || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-        sortedSections.forEach((s: any) => {
-            s.lessons = (s.lessons || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-            s.quizzes = (s.quizzes || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-        });
-        data.sections = sortedSections;
+        const data = await $fetch<any>(`/api/learning/${slug}`);
         course.value = data;
 
+        const sortedSections = data.sections || [];
         // Set default active lesson
         if (sortedSections.length > 0 && sortedSections[0].lessons?.length > 0) {
             activeLessonState.value = sortedSections[0].lessons[0];
@@ -345,17 +317,18 @@ onMounted(() => {
                                 </div>
 
                                 <!-- Questions List -->
-                                <div class="space-y-6">
+                                <!-- Questions List -->
+                                <div v-if="activeQuiz.quiz_questions && activeQuiz.quiz_questions.length > 0" class="space-y-6">
                                     <div
                                         v-for="(q, qIdx) in activeQuiz.quiz_questions"
                                         :key="q.id"
                                         class="p-5 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-3"
                                     >
                                         <p class="text-sm font-bold text-white">
-                                            {{ qIdx + 1 }}. {{ q.question }}
+                                            {{ qIdx + 1 }}. {{ q.question_text || q.question }}
                                         </p>
 
-                                        <div class="space-y-2 pl-4">
+                                        <div v-if="q.quiz_options && q.quiz_options.length > 0" class="space-y-2 pl-4">
                                             <label
                                                 v-for="opt in q.quiz_options"
                                                 :key="opt.id"
@@ -372,7 +345,13 @@ onMounted(() => {
                                                 <span>{{ opt.option_text }}</span>
                                             </label>
                                         </div>
+                                        <div v-else class="text-xs text-slate-500 italic pl-4">
+                                            Pilihan jawaban sedang dipersiapkan.
+                                        </div>
                                     </div>
+                                </div>
+                                <div v-else class="p-8 text-center bg-slate-800/40 rounded-2xl border border-dashed border-slate-700 text-slate-400 text-sm">
+                                    Belum ada butir pertanyaan pada kuis evaluasi ini.
                                 </div>
 
                                 <!-- Quiz Result -->
@@ -385,7 +364,7 @@ onMounted(() => {
                                     </p>
                                 </div>
 
-                                <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                                <div v-if="activeQuiz.quiz_questions && activeQuiz.quiz_questions.length > 0" class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
                                     <Button variant="primary" size="md" @click="submitQuiz">
                                         Kirimkan Jawaban Kuis
                                     </Button>

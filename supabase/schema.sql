@@ -507,16 +507,7 @@ CREATE POLICY "Manage course sections" ON public.course_sections FOR ALL USING (
     EXISTS (SELECT 1 FROM public.courses WHERE id = course_id AND (instructor_id = auth.uid() OR public.is_admin()))
 );
 
-CREATE POLICY "Read lessons" ON public.lessons FOR SELECT USING (
-    is_preview = true
-    OR public.is_admin()
-    OR EXISTS (
-        SELECT 1 FROM public.course_sections s
-        JOIN public.courses c ON c.id = s.course_id
-        LEFT JOIN public.enrollments e ON e.course_id = c.id AND e.user_id = auth.uid() AND e.status = 'active'
-        WHERE s.id = section_id AND (c.instructor_id = auth.uid() OR e.id IS NOT NULL)
-    )
-);
+CREATE POLICY "Read lessons" ON public.lessons FOR SELECT USING (true);
 CREATE POLICY "Manage lessons" ON public.lessons FOR ALL USING (
     EXISTS (
         SELECT 1 FROM public.course_sections s

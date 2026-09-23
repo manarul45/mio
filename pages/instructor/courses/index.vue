@@ -54,58 +54,8 @@ const loadCourses = async () => {
     if (!user.value) return;
     loading.value = true;
     try {
-        let query = supabase
-            .from('courses')
-            .select(`
-                id,
-                title,
-                slug,
-                thumbnail:thumbnail_url,
-                price,
-                discount_price,
-                status,
-                moderation_notes,
-                created_at,
-                categories:category_id(name),
-                sections:course_sections(
-                    id,
-                    lessons(id),
-                    quizzes(id)
-                ),
-                enrollments(count)
-            `)
-            .order('created_at', { ascending: false });
-
-        if (!isAdmin.value) {
-            query = query.eq('instructor_id', user.value.id);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-
-        courses.value = (data || []).map((c: any) => {
-            let totalLessons = 0;
-            let totalQuizzes = 0;
-            (c.sections || []).forEach((s: any) => {
-                totalLessons += (s.lessons || []).length;
-                totalQuizzes += (s.quizzes || []).length;
-            });
-
-            return {
-                id: c.id,
-                title: c.title,
-                slug: c.slug,
-                thumbnail: c.thumbnail,
-                price: c.price,
-                discount_price: c.discount_price,
-                status: c.status,
-                moderation_notes: c.moderation_notes,
-                category: c.categories,
-                lessons_count: totalLessons,
-                quizzes_count: totalQuizzes,
-                enrollments_count: c.enrollments?.[0]?.count || 0,
-            };
-        });
+        const data = await $fetch<any[]>('/api/instructor/courses');
+        courses.value = data || [];
     } catch (err) {
         console.error('Failed to load instructor courses:', err);
     } finally {

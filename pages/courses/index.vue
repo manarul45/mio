@@ -28,76 +28,19 @@ const { data: categories } = await useAsyncData('courses_page_categories', async
   return (data || []) as Category[]
 })
 
-// Fetch courses with full relations & counts
+// Fetch courses with full relations & counts from server endpoint
 const { data: coursesData, refresh } = await useAsyncData(
   'courses_catalog',
-  async () => {
-    let query = supabase
-      .from('courses')
-      .select(`
-        id, title, slug, subtitle, description, thumbnail_url, price, discount_price, level, status, created_at,
-        category:categories(id, name, slug),
-        instructor:profiles!courses_instructor_id_fkey(id, name, avatar_url),
-        sections:course_sections(
-          id,
-          lessons:lessons(id),
-          quizzes:quizzes(id)
-        )
-      `, { count: 'exact' })
-      .eq('status', 'published')
-
-    if (selectedCategory.value) {
-      // Find category id
-      const cat = categories.value?.find(c => c.slug === selectedCategory.value)
-      if (cat) {
-        query = query.eq('category_id', cat.id)
-      }
+  () => $fetch<any>('/api/courses', {
+    params: {
+      search: search.value || undefined,
+      category: selectedCategory.value || undefined,
+      level: selectedLevel.value || undefined,
+      sort: selectedSort.value || undefined,
+      page: currentPage.value,
+      perPage,
     }
-
-    if (selectedLevel.value) {
-      query = query.eq('level', selectedLevel.value)
-    }
-
-    if (search.value.trim()) {
-      query = query.or(`title.ilike.%${search.value.trim()}%,subtitle.ilike.%${search.value.trim()}%`)
-    }
-
-    if (selectedSort.value === 'price_low') {
-      query = query.order('price', { ascending: true })
-    } else if (selectedSort.value === 'price_high') {
-      query = query.order('price', { ascending: false })
-    } else {
-      query = query.order('created_at', { ascending: false })
-    }
-
-    const from = (currentPage.value - 1) * perPage
-    const to = from + perPage - 1
-    query = query.range(from, to)
-
-    const { data, count, error } = await query
-
-    const mapped = (data || []).map((c: any) => {
-      let totalLessons = 0
-      let totalQuizzes = 0
-      if (c.sections) {
-        c.sections.forEach((sec: any) => {
-          totalLessons += sec.lessons?.length || 0
-          totalQuizzes += sec.quizzes?.length || 0
-        })
-      }
-      return {
-        ...c,
-        lessons_count: totalLessons,
-        quizzes_count: totalQuizzes,
-      }
-    })
-
-    return {
-      courses: mapped,
-      total: count || 0,
-      totalPages: Math.ceil((count || 0) / perPage) || 1,
-    }
-  },
+  }),
   { watch: [currentPage] }
 )
 

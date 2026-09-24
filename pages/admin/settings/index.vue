@@ -23,6 +23,8 @@ const swal = useSwal();
 
 const loading = ref(true);
 const isSaving = ref(false);
+const isTestingCloudflare = ref(false);
+const isTestingCloudinary = ref(false);
 const showSecretKey = ref(false);
 const showCloudinarySecretKey = ref(false);
 
@@ -88,6 +90,67 @@ const submit = async () => {
         swal.fireError('Gagal Menyimpan', err.message || 'Terjadi kesalahan.');
     } finally {
         isSaving.value = false;
+    }
+};
+
+const testCloudflareConnection = async () => {
+    if (!form.value.cloudflare_account_id || !form.value.cloudflare_r2_access_key_id || !form.value.cloudflare_r2_secret_access_key || !form.value.cloudflare_r2_bucket) {
+        swal.toastWarning('Harap lengkapi Account ID, Access Key ID, Secret Key, dan Bucket Name terlebih dahulu.');
+        return;
+    }
+
+    isTestingCloudflare.value = true;
+    try {
+        const res: any = await $fetch('/api/admin/settings/test-cloudflare', {
+            method: 'POST',
+            body: {
+                cloudflare_account_id: form.value.cloudflare_account_id,
+                cloudflare_r2_access_key_id: form.value.cloudflare_r2_access_key_id,
+                cloudflare_r2_secret_access_key: form.value.cloudflare_r2_secret_access_key,
+                cloudflare_r2_bucket: form.value.cloudflare_r2_bucket,
+                cloudflare_r2_public_domain: form.value.cloudflare_r2_public_domain,
+            },
+        });
+
+        if (res.success) {
+            swal.fireSuccess('Berhasil Terhubung!', res.message);
+        } else {
+            swal.fireError('Koneksi Gagal', res.message);
+        }
+    } catch (err: any) {
+        swal.fireError('Koneksi Gagal', err.data?.statusMessage || err.message || 'Gagal menghubungi server.');
+    } finally {
+        isTestingCloudflare.value = false;
+    }
+};
+
+const testCloudinaryConnection = async () => {
+    if (!form.value.cloudinary_cloud_name || !form.value.cloudinary_api_key || !form.value.cloudinary_api_secret) {
+        swal.toastWarning('Harap lengkapi Cloud Name, API Key, dan API Secret Cloudinary terlebih dahulu.');
+        return;
+    }
+
+    isTestingCloudinary.value = true;
+    try {
+        const res: any = await $fetch('/api/admin/settings/test-cloudinary', {
+            method: 'POST',
+            body: {
+                cloudinary_cloud_name: form.value.cloudinary_cloud_name,
+                cloudinary_api_key: form.value.cloudinary_api_key,
+                cloudinary_api_secret: form.value.cloudinary_api_secret,
+                cloudinary_upload_preset: form.value.cloudinary_upload_preset,
+            },
+        });
+
+        if (res.success) {
+            swal.fireSuccess('Berhasil Terhubung!', res.message);
+        } else {
+            swal.fireError('Koneksi Gagal', res.message);
+        }
+    } catch (err: any) {
+        swal.fireError('Koneksi Gagal', err.data?.statusMessage || err.message || 'Gagal menghubungi server Cloudinary.');
+    } finally {
+        isTestingCloudinary.value = false;
     }
 };
 
@@ -209,6 +272,20 @@ onMounted(() => {
                             placeholder="Contoh: https://pub-xxxxxxxx.r2.dev atau https://cdn.appmio.com"
                         />
                     </div>
+
+                    <div class="sm:col-span-2 flex justify-end pt-2">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            :loading="isTestingCloudflare"
+                            @click="testCloudflareConnection"
+                            class="border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200"
+                        >
+                            <Zap class="mr-1.5 h-3.5 w-3.5 text-amber-600" />
+                            <span>Uji Koneksi Cloudflare R2</span>
+                        </Button>
+                    </div>
                 </div>
             </div>
 
@@ -282,6 +359,20 @@ onMounted(() => {
                         label="Upload Preset (Opsional)"
                         placeholder="Contoh: appmio_preset"
                     />
+
+                    <div class="sm:col-span-2 flex justify-end pt-2">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            :loading="isTestingCloudinary"
+                            @click="testCloudinaryConnection"
+                            class="border-sky-300 text-sky-800 hover:bg-sky-100 dark:border-sky-800 dark:text-sky-200"
+                        >
+                            <Zap class="mr-1.5 h-3.5 w-3.5 text-sky-600" />
+                            <span>Uji Koneksi Cloudinary</span>
+                        </Button>
+                    </div>
                 </div>
             </div>
 

@@ -66,10 +66,33 @@ const copyText = (text: string, label = 'Teks') => {
   swal.toastSuccess(`${label} Disalin!`)
 }
 
-const bankInstructions = `Bank Central Asia (BCA): 1234-5678-90
+const bankInstructions = ref(`Bank Central Asia (BCA): 1234-5678-90
 a.n. Manarul Ilmi Online Learning Academy
 Bank Mandiri: 9876-5432-10
-a.n. PT Manarul Ilmi`
+a.n. PT Manarul Ilmi`)
+
+const adminWhatsappNumber = ref('6281234567890')
+
+onMounted(async () => {
+  try {
+    const { data: setRes } = await supabase
+      .from('settings')
+      .select('key, value')
+      .in('key', ['bank_transfer_instructions', 'admin_whatsapp_number'])
+
+    if (setRes) {
+      setRes.forEach((item: any) => {
+        if (item.key === 'bank_transfer_instructions' && item.value) {
+          bankInstructions.value = item.value
+        }
+        if (item.key === 'admin_whatsapp_number' && item.value) {
+          const clean = item.value.replace(/[^0-9]/g, '')
+          adminWhatsappNumber.value = clean.startsWith('0') ? '62' + clean.substring(1) : clean
+        }
+      })
+    }
+  } catch {}
+})
 
 const whatsappConfirmationUrl = computed(() => {
   if (!order.value) return '#'
@@ -77,7 +100,7 @@ const whatsappConfirmationUrl = computed(() => {
 Nomor Order: ${order.value.order_number}
 Total Pembayaran: ${formatRupiah(order.value.final_amount)}
 Mohon bantu verifikasi dan aktivasi akses kursus saya. Terima kasih!`
-  return `https://wa.me/6281234567890?text=${encodeURIComponent(msg)}`
+  return `https://wa.me/${adminWhatsappNumber.value}?text=${encodeURIComponent(msg)}`
 })
 
 useHead({

@@ -152,6 +152,19 @@ const approveOrder = async (order: any) => {
             }
         }
 
+        // 3. Approve affiliate commission if order had affiliate
+        if (order.affiliate_user_id) {
+            try {
+                await supabase
+                    .from('affiliate_commissions')
+                    .update({
+                        status: 'approved',
+                        approved_at: new Date().toISOString(),
+                    })
+                    .eq('order_id', order.id);
+            } catch {}
+        }
+
         swal.fireSuccess('Pembayaran Disetujui!', `Akses kursus untuk ${order.user?.name} telah aktif.`);
         loadOrders();
     } catch (err: any) {

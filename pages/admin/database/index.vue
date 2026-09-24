@@ -168,6 +168,30 @@ const exportTableAsJson = async (tableName: string) => {
     }
 };
 
+const isExportingFull = ref(false);
+
+const downloadFullBackup = async (format: 'json' | 'sql' = 'json') => {
+    isExportingFull.value = true;
+    try {
+        swal.toastInfo(`Menyiapkan file cadangan database (.${format})...`);
+        const res = await fetch(`/api/admin/database-export?format=${format}`);
+        if (!res.ok) throw new Error('Gagal mengekspor database');
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `mio-learning-academy-db-backup-${Date.now()}.${format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        swal.fireSuccess('Pencadangan Berhasil!', `File cadangan database (.${format.toUpperCase()}) telah berhasil diunduh.`);
+    } catch (err: any) {
+        swal.fireError('Gagal Mengekspor', err.message || 'Terjadi kesalahan sistem.');
+    } finally {
+        isExportingFull.value = false;
+    }
+};
+
 onMounted(() => {
     loadDatabaseStats();
 });
@@ -195,7 +219,31 @@ onMounted(() => {
                 </div>
             </div>
 
-            <div class="flex items-center gap-2.5">
+            <div class="flex flex-wrap items-center gap-2.5">
+                <Button
+                    type="button"
+                    @click="downloadFullBackup('sql')"
+                    variant="secondary"
+                    size="md"
+                    :loading="isExportingFull"
+                    class="border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300"
+                >
+                    <Download class="mr-2 h-4 w-4" />
+                    <span>Backup (.SQL)</span>
+                </Button>
+
+                <Button
+                    type="button"
+                    @click="downloadFullBackup('json')"
+                    variant="secondary"
+                    size="md"
+                    :loading="isExportingFull"
+                    class="border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-300"
+                >
+                    <Download class="mr-2 h-4 w-4" />
+                    <span>Backup (.JSON)</span>
+                </Button>
+
                 <Button
                     type="button"
                     @click="isImportModalOpen = true"

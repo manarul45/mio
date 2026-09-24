@@ -45,7 +45,8 @@ const loadAnalytics = async () => {
                 status,
                 price,
                 discount_price,
-                enrollments(count)
+                enrollments(count),
+                course_reviews(rating)
             `);
 
         if (!isAdmin.value) {
@@ -65,13 +66,19 @@ const loadAnalytics = async () => {
             totalRevenue += revenue;
             totalStudents += studentCount;
 
+            const reviews = c.course_reviews || [];
+            const reviewsCount = reviews.length;
+            const avgRating = reviewsCount > 0
+                ? (reviews.reduce((acc: number, r: any) => acc + (Number(r.rating) || 5), 0) / reviewsCount).toFixed(1)
+                : '5.0';
+
             return {
                 id: c.id,
                 title: c.title,
                 status: c.status || 'draft',
                 students_count: studentCount,
-                average_rating: '5.0',
-                reviews_count: 0,
+                average_rating: avgRating,
+                reviews_count: reviewsCount,
                 revenue,
             };
         });

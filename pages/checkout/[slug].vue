@@ -51,6 +51,17 @@ const whatsappNumber = ref(profile.value?.whatsapp_number || '')
 const password = ref('')
 const showPassword = ref(false)
 
+// Affiliate referral
+const affiliateRef = computed(() => {
+  return (route.query.ref as string) || (typeof window !== 'undefined' ? localStorage.getItem('mio_affiliate_ref') : null) || null
+})
+
+onMounted(() => {
+  if (route.query.ref && typeof window !== 'undefined') {
+    localStorage.setItem('mio_affiliate_ref', route.query.ref as string)
+  }
+})
+
 // Voucher state
 const voucherInput = ref('')
 const appliedVoucher = ref<any>(null)
@@ -163,6 +174,7 @@ const submitPayment = async () => {
         course_id: course.value.id,
         voucher_code: appliedVoucher.value?.code || null,
         customer_whatsapp: whatsappNumber.value || profile.value?.whatsapp_number,
+        affiliate_user_id: affiliateRef.value,
       }
     })
 

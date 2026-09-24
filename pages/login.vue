@@ -87,7 +87,12 @@ useHead({
         </div>
 
         <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">Kata Sandi</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-semibold text-slate-700">Kata Sandi</label>
+            <NuxtLink to="/forgot-password" class="text-xs font-semibold text-indigo-600 hover:text-indigo-500">
+              Lupa kata sandi?
+            </NuxtLink>
+          </div>
           <div class="relative">
             <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
               <Lock class="w-4 h-4" />

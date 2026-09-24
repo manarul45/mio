@@ -2,7 +2,7 @@ import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
-  const { course_id, voucher_code, customer_whatsapp } = body
+  const { course_id, voucher_code, customer_whatsapp, affiliate_user_id } = body
 
   if (!course_id) {
     throw createError({ statusCode: 400, statusMessage: 'Kursus wajib dipilih.' })
@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   // 1. Fetch course details
   const { data: course, error: courseError } = await supabase
     .from('courses')
-    .select('id, title, price, discount_price, instructor_id, status')
+    .select('id, title, price, discount_price, instructor_id, status, custom_commission_rate')
     .eq('id', course_id)
     .single()
 
@@ -84,6 +84,19 @@ export default defineEventHandler(async (event) => {
   const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase()
   const orderNumber = `MIO-${dateStr}-${randomSuffix}`
 
+  // Validate affiliate user id
+  let validAffiliateId: string | null = null
+  if (affiliate_user_id && affiliate_user_id !== user.id) {
+    const { data: affUser } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', affiliate_user_id)
+      .maybeSingle()
+    if (affUser) {
+      validAffiliateId = affUser.id
+    }
+  }
+
   // 4. Create Order
   const { data: order, error: orderError } = await supabase
     .from('orders')
@@ -91,6 +104,7 @@ export default defineEventHandler(async (event) => {
       order_number: orderNumber,
       user_id: user.id,
       customer_whatsapp: customer_whatsapp || null,
+      affiliate_user_id: validAffiliateId,
       total_amount: course.price,
       discount_amount: course.price - basePrice,
       final_amount: finalAmount,
@@ -107,8 +121,15 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, statusMessage: 'Gagal membuat pesanan: ' + orderError?.message })
   }
 
-  // 5. Create Order Item
-  await supabase
+  // 5. Calculate revenue shares
+  const affiliateRate = validAffiliateId ? (Number(course.custom_commission_rate) || 20) : 0
+  const affiliateEarning = (finalAmount * affiliateRate) / 100
+  const instructorRate = 70
+  const instructorEarning = (finalAmount * instructorRate) / 100
+  const platformEarning = Math.max(0, finalAmount - (affiliateEarning + instructorEarning))
+
+  // Create Order Item
+  const { data: orderItem } = await supabase
     .from('order_items')
     .insert({
       order_id: order.id,
@@ -117,9 +138,29 @@ export default defineEventHandler(async (event) => {
       price: course.price,
       discount_price: course.discount_price,
       final_price: finalAmount,
-      instructor_earning: finalAmount * 0.7,
-      platform_earning: finalAmount * 0.3
+      instructor_share_rate: instructorRate,
+      affiliate_commission_rate: affiliateRate,
+      instructor_earning: instructorEarning,
+      affiliate_earning: affiliateEarning,
+      platform_earning: platformEarning
     })
+    .select()
+    .single()
+
+  // If affiliate exists and order is free, create cleared commission immediately
+  if (validAffiliateId && orderItem && affiliateEarning > 0) {
+    await supabase
+      .from('affiliate_commissions')
+      .insert({
+        affiliate_user_id: validAffiliateId,
+        order_id: order.id,
+        order_item_id: orderItem.id,
+        course_id: course.id,
+        amount: affiliateEarning,
+        status: isFree ? 'approved' : 'pending',
+        approved_at: isFree ? new Date().toISOString() : null,
+      })
+  }
 
   // 6. If Free, enroll immediately!
   if (isFree) {

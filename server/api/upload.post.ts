@@ -1,0 +1,87 @@
+import { serverSupabaseUser } from '#supabase/server'
+import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { readMultipartFormData } from 'h3'
+
+export default defineEventHandler(async (event) => {
+  const user = await serverSupabaseUser(event)
+  if (!user) {
+    throw createError({ statusCode: 401, statusMessage: 'Silakan masuk terlebih dahulu untuk mengunggah file.' })
+  }
+
+  const formData = await readMultipartFormData(event)
+  if (!formData || formData.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: 'Tidak ada file yang diunggah.' })
+  }
+
+  let fileItem: any = null
+  let bucket = 'materials'
+  let customFolder = ''
+
+  for (const item of formData) {
+    if (item.name === 'bucket' && item.data) {
+      bucket = item.data.toString().trim()
+    } else if (item.name === 'folder' && item.data) {
+      customFolder = item.data.toString().trim()
+    } else if (item.filename && item.data) {
+      fileItem = item
+    }
+  }
+
+  if (!fileItem) {
+    throw createError({ statusCode: 400, statusMessage: 'Berkas file tidak ditemukan.' })
+  }
+
+  const allowedBuckets = ['courses', 'avatars', 'certificates', 'receipts', 'materials']
+  if (!allowedBuckets.includes(bucket)) {
+    bucket = 'materials'
+  }
+
+  // Generate safe unique filename
+  const originalName = fileItem.filename || 'upload.bin'
+  const ext = originalName.split('.').pop()?.toLowerCase() || 'bin'
+  const baseName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_')
+  const timestamp = Date.now()
+  const randomStr = Math.random().toString(36).substring(2, 8)
+  const safeFilename = `${baseName}-${timestamp}-${randomStr}.${ext}`
+
+  const folderPath = customFolder ? `${customFolder.replace(/^\/+|\/+$/g, '')}/` : ''
+  const filePath = `${folderPath}${safeFilename}`
+
+  const client = getAdminSupabaseClient(event)
+
+  const { data: uploadData, error: uploadError } = await client.storage
+    .from(bucket)
+    .upload(filePath, fileItem.data, {
+      contentType: fileItem.type || 'application/octet-stream',
+      upsert: true,
+    })
+
+  if (uploadError) {
+    throw createError({ statusCode: 500, statusMessage: 'Gagal mengunggah file ke penyimpanan: ' + uploadError.message })
+  }
+
+  let fileUrl = ''
+  const isPublicBucket = ['courses', 'avatars', 'certificates'].includes(bucket)
+
+  if (isPublicBucket) {
+    const { data: urlData } = client.storage.from(bucket).getPublicUrl(filePath)
+    fileUrl = urlData.publicUrl
+  } else {
+    // Generate long-lived signed URL for private bucket (1 year)
+    const { data: signedData } = await client.storage
+      .from(bucket)
+      .createSignedUrl(filePath, 60 * 60 * 24 * 365)
+
+    fileUrl = signedData?.signedUrl || filePath
+  }
+
+  return {
+    success: true,
+    url: fileUrl,
+    path: filePath,
+    bucket,
+    filename: originalName,
+    size: fileItem.data.length,
+    mimeType: fileItem.type,
+  }
+})

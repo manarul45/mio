@@ -19,6 +19,12 @@ import {
     X,
     ArrowLeft,
     Sparkles,
+    MessageSquare,
+    Send,
+    Check,
+    HelpCircle,
+    Image as ImageIcon,
+    Music,
 } from 'lucide-vue-next';
 
 definePageMeta({
@@ -40,6 +46,15 @@ const passedQuizIds = ref<number[]>([]);
 const isSidebarOpen = ref(true);
 const isCertModalOpen = ref(false);
 const activeLessonTab = ref('overview'); // 'overview' | 'qa'
+
+// Discussions Q&A state
+const discussions = ref<any[]>([]);
+const loadingDiscussions = ref(false);
+const newQuestionTitle = ref('');
+const newQuestionContent = ref('');
+const isSubmittingQuestion = ref(false);
+const replyContent = ref<Record<number, string>>({});
+const isSubmittingReply = ref<Record<number, boolean>>({});
 
 // Quiz solver state
 const selectedQuizAnswers = ref<Record<number, number>>({});
@@ -72,10 +87,82 @@ const isQuizPassed = (quizId: number) => {
     return passedQuizIds.value.includes(quizId);
 };
 
+const loadDiscussions = async (lessonId: number) => {
+    if (!lessonId) return;
+    loadingDiscussions.value = true;
+    try {
+        const res: any = await $fetch(`/api/lessons/${lessonId}/discussions`);
+        discussions.value = res.discussions || [];
+    } catch (err) {
+        console.error('Failed to load discussions:', err);
+    } finally {
+        loadingDiscussions.value = false;
+    }
+};
+
+const submitQuestion = async () => {
+    if (!newQuestionTitle.value.trim() || !newQuestionContent.value.trim() || !activeLessonState.value) return;
+    isSubmittingQuestion.value = true;
+    try {
+        const res: any = await $fetch(`/api/lessons/${activeLessonState.value.id}/discussions`, {
+            method: 'POST',
+            body: {
+                title: newQuestionTitle.value.trim(),
+                content: newQuestionContent.value.trim(),
+            },
+        });
+        if (res.discussion) {
+            discussions.value.unshift(res.discussion);
+        }
+        newQuestionTitle.value = '';
+        newQuestionContent.value = '';
+        toast.success('Pertanyaan diskusi berhasil diajukan!');
+    } catch (err: any) {
+        toast.error(err.data?.statusMessage || err.message || 'Gagal mengirim pertanyaan diskusi.');
+    } finally {
+        isSubmittingQuestion.value = false;
+    }
+};
+
+const submitReply = async (discId: number) => {
+    const text = replyContent.value[discId];
+    if (!text || !text.trim()) return;
+    isSubmittingReply.value[discId] = true;
+    try {
+        const res: any = await $fetch(`/api/discussions/${discId}/reply`, {
+            method: 'POST',
+            body: { content: text.trim() },
+        });
+        const disc = discussions.value.find((d: any) => d.id === discId);
+        if (disc) {
+            if (!disc.replies) disc.replies = [];
+            disc.replies.push(res.reply);
+        }
+        replyContent.value[discId] = '';
+        toast.success('Tanggapan Anda berhasil dikirim!');
+    } catch (err: any) {
+        toast.error(err.data?.statusMessage || err.message || 'Gagal mengirim balasan.');
+    } finally {
+        isSubmittingReply.value[discId] = false;
+    }
+};
+
+const toggleResolve = async (disc: any) => {
+    try {
+        const res: any = await $fetch(`/api/discussions/${disc.id}/resolve`, { method: 'POST' });
+        disc.is_resolved = res.is_resolved;
+        toast.info(disc.is_resolved ? 'Diskusi ditandai selesai.' : 'Diskusi dibuka kembali.');
+    } catch (err: any) {
+        toast.error('Gagal memperbarui status diskusi.');
+    }
+};
+
 const selectLesson = (lesson: any) => {
     activeQuiz.value = null;
     quizResult.value = null;
     activeLessonState.value = lesson;
+    activeLessonTab.value = 'overview';
+    loadDiscussions(lesson.id);
 };
 
 const selectQuiz = (quiz: any) => {
@@ -361,12 +448,175 @@ onMounted(() => {
                                 </Button>
                             </div>
 
-                            <!-- Lesson Notes & Summary -->
-                            <div class="p-6 rounded-3xl bg-slate-900/60 border border-slate-800/80 space-y-3">
-                                <h3 class="text-sm font-bold text-white">Rangkuman Materi & Catatan Penting</h3>
-                                <p class="text-xs text-slate-400 leading-relaxed whitespace-pre-line">
-                                    {{ activeLessonState.description || 'Pahami materi video di atas dengan cermat dan ikuti instruksi yang disampaikan oleh instruktur.' }}
-                                </p>
+                            <!-- Lesson Content Tabs (Overview & Q&A) -->
+                            <div class="space-y-4">
+                                <div class="flex items-center gap-2 border-b border-slate-800 pb-2">
+                                    <button
+                                        type="button"
+                                        @click="activeLessonTab = 'overview'"
+                                        :class="[
+                                            'px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2',
+                                            activeLessonTab === 'overview'
+                                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                                                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                                        ]"
+                                    >
+                                        <Video class="h-4 w-4" />
+                                        <span>Ikhtisar & Catatan</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="activeLessonTab = 'qa'"
+                                        :class="[
+                                            'px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2',
+                                            activeLessonTab === 'qa'
+                                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                                                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                                        ]"
+                                    >
+                                        <MessageSquare class="h-4 w-4" />
+                                        <span>Forum Tanya-Jawab</span>
+                                        <span v-if="discussions.length > 0" class="px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+                                            {{ discussions.length }}
+                                        </span>
+                                    </button>
+                                </div>
+
+                                <!-- OVERVIEW TAB -->
+                                <div v-show="activeLessonTab === 'overview'" class="p-6 rounded-3xl bg-slate-900/60 border border-slate-800/80 space-y-3">
+                                    <h3 class="text-sm font-bold text-white">Rangkuman Materi & Catatan Penting</h3>
+                                    <p class="text-xs text-slate-400 leading-relaxed whitespace-pre-line">
+                                        {{ activeLessonState.description || 'Pahami materi video di atas dengan cermat dan ikuti instruksi yang disampaikan oleh instruktur.' }}
+                                    </p>
+                                </div>
+
+                                <!-- Q&A DISCUSSION TAB -->
+                                <div v-show="activeLessonTab === 'qa'" class="space-y-6">
+                                    <!-- Ask Question Box -->
+                                    <div class="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+                                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                                            <HelpCircle class="h-4 w-4 text-indigo-400" />
+                                            <span>Ajukan Pertanyaan Diskusi</span>
+                                        </h3>
+                                        <div class="space-y-3">
+                                            <input
+                                                v-model="newQuestionTitle"
+                                                type="text"
+                                                placeholder="Judul singkat pertanyaan (contoh: Bingung di menit 04:15)..."
+                                                class="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                                            />
+                                            <textarea
+                                                v-model="newQuestionContent"
+                                                rows="3"
+                                                placeholder="Jelaskan pertanyaan atau kendala Anda secara detail..."
+                                                class="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                                            ></textarea>
+                                            <div class="flex justify-end">
+                                                <Button
+                                                    type="button"
+                                                    variant="primary"
+                                                    size="sm"
+                                                    :disabled="isSubmittingQuestion || !newQuestionTitle.trim() || !newQuestionContent.trim()"
+                                                    @click="submitQuestion"
+                                                >
+                                                    <Send class="h-3.5 w-3.5 mr-1.5" />
+                                                    <span>{{ isSubmittingQuestion ? 'Mengirim...' : 'Kirim Pertanyaan' }}</span>
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Discussions List -->
+                                    <div v-if="loadingDiscussions" class="py-8 text-center text-xs text-slate-500">
+                                        <LoadingState text="Memuat forum diskusi materi..." />
+                                    </div>
+
+                                    <div v-else-if="discussions.length === 0" class="p-8 text-center rounded-3xl bg-slate-900/40 border border-dashed border-slate-800 text-xs text-slate-500">
+                                        Belum ada diskusi untuk materi ini. Jadilah yang pertama bertanya!
+                                    </div>
+
+                                    <div v-else class="space-y-4">
+                                        <div
+                                            v-for="disc in discussions"
+                                            :key="disc.id"
+                                            class="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4"
+                                        >
+                                            <div class="flex items-start justify-between gap-4">
+                                                <div class="flex items-center gap-3">
+                                                    <div class="h-9 w-9 rounded-xl bg-indigo-950 flex items-center justify-center font-bold text-xs text-indigo-400 border border-indigo-800">
+                                                        {{ disc.user?.name ? disc.user.name[0].toUpperCase() : 'U' }}
+                                                    </div>
+                                                    <div>
+                                                        <p class="text-xs font-bold text-white flex items-center gap-2">
+                                                            <span>{{ disc.user?.name || 'Siswa' }}</span>
+                                                            <Badge v-if="disc.user?.role === 'INSTRUCTOR' || disc.user?.role === 'ADMIN'" variant="purple" size="sm">Instruktur</Badge>
+                                                        </p>
+                                                        <p class="text-[10px] text-slate-500">{{ new Date(disc.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div class="flex items-center gap-2">
+                                                    <span v-if="disc.is_resolved" class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-800 flex items-center gap-1">
+                                                        <Check class="h-3 w-3" />
+                                                        <span>Terselesaikan</span>
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        @click="toggleResolve(disc)"
+                                                        class="text-[11px] font-semibold text-slate-400 hover:text-indigo-400 transition"
+                                                        title="Ubah status terselesaikan"
+                                                    >
+                                                        {{ disc.is_resolved ? 'Buka Kembali' : 'Tandai Selesai' }}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <h4 class="text-sm font-bold text-white">{{ disc.title }}</h4>
+                                                <p class="text-xs text-slate-300 mt-1 whitespace-pre-line leading-relaxed">{{ disc.content }}</p>
+                                            </div>
+
+                                            <!-- Replies -->
+                                            <div v-if="disc.replies && disc.replies.length > 0" class="pl-4 sm:pl-6 border-l-2 border-indigo-900/60 space-y-3 pt-2">
+                                                <div
+                                                    v-for="rep in disc.replies"
+                                                    :key="rep.id"
+                                                    class="p-4 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-2"
+                                                >
+                                                    <div class="flex items-center justify-between">
+                                                        <div class="flex items-center gap-2">
+                                                            <span class="font-bold text-xs text-white">{{ rep.user?.name || 'User' }}</span>
+                                                            <Badge v-if="rep.is_instructor || rep.user?.role === 'INSTRUCTOR' || rep.user?.role === 'ADMIN'" variant="primary" size="sm">Instruktur</Badge>
+                                                        </div>
+                                                        <span class="text-[10px] text-slate-500">{{ new Date(rep.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }}</span>
+                                                    </div>
+                                                    <p class="text-xs text-slate-300 leading-relaxed whitespace-pre-line">{{ rep.content }}</p>
+                                                </div>
+                                            </div>
+
+                                            <!-- Reply Form -->
+                                            <div class="pt-2 flex items-center gap-2">
+                                                <input
+                                                    v-model="replyContent[disc.id]"
+                                                    type="text"
+                                                    placeholder="Tulis tanggapan atau jawaban..."
+                                                    @keyup.enter="submitReply(disc.id)"
+                                                    class="flex-1 px-4 py-2 rounded-xl border border-slate-700 bg-slate-800/80 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="primary"
+                                                    size="sm"
+                                                    :disabled="isSubmittingReply[disc.id] || !replyContent[disc.id]?.trim()"
+                                                    @click="submitReply(disc.id)"
+                                                >
+                                                    <Send class="h-3 w-3 mr-1" />
+                                                    <span>Balas</span>
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </template>
 
@@ -386,17 +636,39 @@ onMounted(() => {
                                 </div>
 
                                 <!-- Questions List -->
-                                <!-- Questions List -->
                                 <div v-if="activeQuiz.quiz_questions && activeQuiz.quiz_questions.length > 0" class="space-y-6">
                                     <div
                                         v-for="(q, qIdx) in activeQuiz.quiz_questions"
                                         :key="q.id"
                                         class="p-5 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-3"
                                     >
-                                        <p class="text-sm font-bold text-white">
-                                            {{ qIdx + 1 }}. {{ q.question_text || q.question }}
-                                        </p>
+                                        <!-- Question Text & Multimedia Attachment -->
+                                        <div class="space-y-3">
+                                            <p class="text-sm font-bold text-white">
+                                                {{ qIdx + 1 }}. {{ q.question_text || q.question }}
+                                            </p>
 
+                                            <!-- Multimedia rendering (Image / Audio / Video) -->
+                                            <div v-if="q.media_url" class="rounded-2xl overflow-hidden max-w-lg border border-slate-700 bg-black/40 p-2">
+                                                <img
+                                                    v-if="q.media_type === 'image' || (!q.media_type && (q.media_url.endsWith('.jpg') || q.media_url.endsWith('.png') || q.media_url.endsWith('.webp') || q.media_url.endsWith('.gif')))"
+                                                    :src="q.media_url"
+                                                    alt="Media Soal"
+                                                    class="rounded-xl max-h-64 object-contain mx-auto"
+                                                />
+                                                <audio
+                                                    v-else-if="q.media_type === 'audio' || (!q.media_type && (q.media_url.endsWith('.mp3') || q.media_url.endsWith('.wav') || q.media_url.endsWith('.ogg')))"
+                                                    controls
+                                                    class="w-full"
+                                                    :src="q.media_url"
+                                                ></audio>
+                                                <div v-else class="text-xs text-slate-400">
+                                                    <a :href="q.media_url" target="_blank" class="text-indigo-400 hover:underline">Buka Lampiran Media &rarr;</a>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Options list -->
                                         <div v-if="q.quiz_options && q.quiz_options.length > 0" class="space-y-2 pl-4">
                                             <label
                                                 v-for="opt in q.quiz_options"
@@ -411,11 +683,17 @@ onMounted(() => {
                                                     v-model="selectedQuizAnswers[q.id]"
                                                     class="text-indigo-600 focus:ring-0"
                                                 />
+                                                <img v-if="opt.media_url" :src="opt.media_url" alt="" class="h-10 w-10 object-cover rounded-lg border border-slate-600" />
                                                 <span>{{ opt.option_text }}</span>
                                             </label>
                                         </div>
                                         <div v-else class="text-xs text-slate-500 italic pl-4">
                                             Pilihan jawaban sedang dipersiapkan.
+                                        </div>
+
+                                        <!-- Question Explanation (shown after quiz submission) -->
+                                        <div v-if="quizResult && q.explanation" class="p-3 bg-indigo-950/40 border border-indigo-800 rounded-xl text-xs text-indigo-300">
+                                            <strong class="text-indigo-200">Penjelasan:</strong> {{ q.explanation }}
                                         </div>
                                     </div>
                                 </div>

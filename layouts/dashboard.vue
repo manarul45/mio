@@ -144,6 +144,19 @@ const isActive = (path: string) => {
                         <CreditCard class="h-5 w-5 shrink-0" />
                         <span v-if="isSidebarOpen">Riwayat Transaksi</span>
                     </NuxtLink>
+
+                    <NuxtLink
+                        to="/affiliate"
+                        :class="[
+                            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                            isActive('/affiliate')
+                                ? 'bg-indigo-50 text-indigo-700 font-semibold dark:bg-indigo-950/60 dark:text-indigo-300'
+                                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+                        ]"
+                    >
+                        <Coins class="h-5 w-5 shrink-0 text-amber-500" />
+                        <span v-if="isSidebarOpen">Program Afiliasi</span>
+                    </NuxtLink>
                 </div>
 
                 <!-- Instructor Menu Group (Instruktur & Admin) -->
@@ -207,6 +220,30 @@ const isActive = (path: string) => {
                         <span v-if="isSidebarOpen">Laporan Keuangan</span>
                     </NuxtLink>
                     <NuxtLink
+                        to="/admin/withdrawals"
+                        :class="[
+                            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                            isActive('/admin/withdrawals')
+                                ? 'bg-purple-50 text-purple-700 font-semibold dark:bg-purple-950/60 dark:text-purple-300'
+                                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+                        ]"
+                    >
+                        <Coins class="h-5 w-5 shrink-0 text-amber-500" />
+                        <span v-if="isSidebarOpen">Penarikan Afiliasi</span>
+                    </NuxtLink>
+                    <NuxtLink
+                        to="/admin/landing-pages"
+                        :class="[
+                            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                            isActive('/admin/landing-pages')
+                                ? 'bg-purple-50 text-purple-700 font-semibold dark:bg-purple-950/60 dark:text-purple-300'
+                                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+                        ]"
+                    >
+                        <LayoutTemplate class="h-5 w-5 shrink-0 text-indigo-500" />
+                        <span v-if="isSidebarOpen">Landing Pages</span>
+                    </NuxtLink>
+                    <NuxtLink
                         to="/admin/moderation"
                         :class="[
                             'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
@@ -217,6 +254,18 @@ const isActive = (path: string) => {
                     >
                         <ShieldAlert class="h-5 w-5 shrink-0" />
                         <span v-if="isSidebarOpen">Moderasi Kursus</span>
+                    </NuxtLink>
+                    <NuxtLink
+                        to="/admin/audit-logs"
+                        :class="[
+                            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                            isActive('/admin/audit-logs')
+                                ? 'bg-purple-50 text-purple-700 font-semibold dark:bg-purple-950/60 dark:text-purple-300'
+                                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+                        ]"
+                    >
+                        <ShieldAlert class="h-5 w-5 shrink-0 text-rose-500" />
+                        <span v-if="isSidebarOpen">Log Audit</span>
                     </NuxtLink>
                     <NuxtLink
                         to="/admin/database"
@@ -300,7 +349,7 @@ const isActive = (path: string) => {
             <!-- User Footer Profile Card -->
             <div class="border-t border-slate-100 p-3 dark:border-slate-800">
                 <div class="flex items-center justify-between rounded-xl bg-slate-50 p-2 dark:bg-slate-800/60">
-                    <div class="flex items-center gap-3 min-w-0">
+                    <NuxtLink to="/profile" class="flex items-center gap-3 min-w-0 hover:opacity-80 transition cursor-pointer" title="Kelola Profil & Keamanan">
                         <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
                             {{ userInitial }}
                         </div>
@@ -308,9 +357,12 @@ const isActive = (path: string) => {
                             <p class="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{{ displayName }}</p>
                             <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate">{{ userRole }}</p>
                         </div>
-                    </div>
+                    </NuxtLink>
 
                     <div class="flex items-center gap-1">
+                        <NuxtLink to="/profile" v-if="isSidebarOpen" class="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-indigo-600 transition shadow-sm dark:hover:bg-slate-700" title="Profil">
+                            <UserIcon class="h-4 w-4" />
+                        </NuxtLink>
                         <button
                             v-if="isSidebarOpen"
                             type="button"
@@ -323,6 +375,7 @@ const isActive = (path: string) => {
                     </div>
                 </div>
             </div>
+
         </aside>
 
         <!-- Mobile Drawer Sidebar Slide-over Overlay -->
@@ -424,6 +477,20 @@ const isActive = (path: string) => {
                             <CreditCard class="h-5 w-5 shrink-0" />
                             <span>Riwayat Transaksi</span>
                         </NuxtLink>
+
+                        <NuxtLink
+                            to="/affiliate"
+                            @click="isMobileSidebarOpen = false"
+                            :class="[
+                                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                                isActive('/affiliate')
+                                    ? 'bg-indigo-50 text-indigo-700 font-semibold dark:bg-indigo-950/60 dark:text-indigo-300'
+                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+                            ]"
+                        >
+                            <Coins class="h-5 w-5 shrink-0 text-amber-500" />
+                            <span>Program Afiliasi</span>
+                        </NuxtLink>
                     </div>
 
                     <!-- Instructor Menu Group -->
@@ -491,6 +558,32 @@ const isActive = (path: string) => {
                             <span>Laporan Keuangan</span>
                         </NuxtLink>
                         <NuxtLink
+                            to="/admin/withdrawals"
+                            @click="isMobileSidebarOpen = false"
+                            :class="[
+                                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                                isActive('/admin/withdrawals')
+                                    ? 'bg-purple-50 text-purple-700 font-semibold dark:bg-purple-950/60 dark:text-purple-300'
+                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+                            ]"
+                        >
+                            <Coins class="h-5 w-5 shrink-0 text-amber-500" />
+                            <span>Penarikan Afiliasi</span>
+                        </NuxtLink>
+                        <NuxtLink
+                            to="/admin/landing-pages"
+                            @click="isMobileSidebarOpen = false"
+                            :class="[
+                                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                                isActive('/admin/landing-pages')
+                                    ? 'bg-purple-50 text-purple-700 font-semibold dark:bg-purple-950/60 dark:text-purple-300'
+                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+                            ]"
+                        >
+                            <LayoutTemplate class="h-5 w-5 shrink-0 text-indigo-500" />
+                            <span>Landing Pages</span>
+                        </NuxtLink>
+                        <NuxtLink
                             to="/admin/moderation"
                             @click="isMobileSidebarOpen = false"
                             :class="[
@@ -502,6 +595,19 @@ const isActive = (path: string) => {
                         >
                             <ShieldAlert class="h-5 w-5 shrink-0" />
                             <span>Moderasi Kursus</span>
+                        </NuxtLink>
+                        <NuxtLink
+                            to="/admin/audit-logs"
+                            @click="isMobileSidebarOpen = false"
+                            :class="[
+                                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                                isActive('/admin/audit-logs')
+                                    ? 'bg-purple-50 text-purple-700 font-semibold dark:bg-purple-950/60 dark:text-purple-300'
+                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+                            ]"
+                        >
+                            <ShieldAlert class="h-5 w-5 shrink-0 text-rose-500" />
+                            <span>Log Audit</span>
                         </NuxtLink>
                         <NuxtLink
                             to="/admin/database"
@@ -591,7 +697,7 @@ const isActive = (path: string) => {
                 <!-- User Footer in Mobile Drawer -->
                 <div class="border-t border-slate-100 p-4 dark:border-slate-800">
                     <div class="flex items-center justify-between rounded-2xl bg-slate-50 p-3 dark:bg-slate-800/60">
-                        <div class="flex items-center gap-3 min-w-0">
+                        <NuxtLink to="/profile" @click="isMobileSidebarOpen = false" class="flex items-center gap-3 min-w-0 hover:opacity-80 transition cursor-pointer" title="Kelola Profil & Keamanan">
                             <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-100 font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
                                 {{ userInitial }}
                             </div>
@@ -599,12 +705,13 @@ const isActive = (path: string) => {
                                 <p class="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{{ displayName }}</p>
                                 <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate">{{ user?.email }}</p>
                             </div>
-                        </div>
+                        </NuxtLink>
 
                         <button
                             type="button"
                             @click="logout"
                             class="rounded-xl p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition dark:hover:bg-rose-950/40"
+
                             title="Logout"
                         >
                             <LogOut class="h-5 w-5" />

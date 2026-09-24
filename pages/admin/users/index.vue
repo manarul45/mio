@@ -15,6 +15,11 @@ import {
     GraduationCap,
     BookOpen,
     Edit3,
+    UploadCloud,
+    Key,
+    Trash2,
+    MessageCircle,
+    Copy,
 } from 'lucide-vue-next';
 
 definePageMeta({
@@ -32,6 +37,7 @@ const activeRole = ref('all');
 // Modals State
 const isAddManualOpen = ref(false);
 const isEditModalOpen = ref(false);
+const isBulkModalOpen = ref(false);
 const selectedUser = ref<any>(null);
 
 const singleForm = ref({
@@ -47,6 +53,13 @@ const editForm = ref({
     email: '',
     role: 'STUDENT',
 });
+
+const bulkForm = ref({
+    raw_users: '',
+    default_role: 'STUDENT',
+    default_password: '',
+});
+const isSubmittingBulk = ref(false);
 
 const loadUsers = async () => {
     loading.value = true;
@@ -154,6 +167,88 @@ const createUser = async () => {
     }
 };
 
+const handleBulkImport = async () => {
+    if (!bulkForm.value.raw_users.trim()) {
+        swal.toastError('Masukkan data teks pengguna terlebih dahulu.');
+        return;
+    }
+
+    isSubmittingBulk.value = true;
+    try {
+        const res: any = await $fetch('/api/admin/users/bulk', {
+            method: 'POST',
+            body: bulkForm.value,
+        });
+
+        swal.fireSuccess('Import Berhasil!', res.message);
+        isBulkModalOpen.value = false;
+        bulkForm.value.raw_users = '';
+        loadUsers();
+    } catch (err: any) {
+        swal.fireError('Import Gagal', err.data?.statusMessage || err.message);
+    } finally {
+        isSubmittingBulk.value = false;
+    }
+};
+
+const handleResetPassword = async (u: any) => {
+    const isConfirmed = await swal.confirmDialog({
+        title: 'Reset Kata Sandi?',
+        text: `Kata sandi baru akan dibuat untuk pengguna ${u.name} (${u.email}) dan dapat langsung dikirim via WhatsApp.`,
+        confirmButtonText: 'Reset Password Sekarang',
+        confirmButtonColor: '#7c3aed',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+        const res: any = await $fetch(`/api/admin/users/${u.id}/reset-password`, {
+            method: 'POST',
+        });
+
+        const waBtnHtml = res.whatsapp_url
+            ? `<div class="mt-4"><a href="${res.whatsapp_url}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition">Kirim Password via WhatsApp &rarr;</a></div>`
+            : '';
+
+        swal.fireCustom({
+            icon: 'success',
+            title: 'Password Berhasil Direset!',
+            html: `
+                <div class="text-left text-xs space-y-2">
+                    <p>Akun: <strong>${res.user_name}</strong> (${res.user_email})</p>
+                    <div class="p-3 bg-slate-100 rounded-xl font-mono text-sm text-purple-700 font-bold select-all">
+                        ${res.new_password}
+                    </div>
+                    <p class="text-slate-500 text-[11px]">Silakan salin password di atas atau kirim langsung ke WhatsApp pengguna:</p>
+                    ${waBtnHtml}
+                </div>
+            `,
+            confirmButtonText: 'Tutup',
+        });
+    } catch (err: any) {
+        swal.toastError(err.data?.statusMessage || err.message || 'Gagal mereset kata sandi');
+    }
+};
+
+const deleteUser = async (u: any) => {
+    const isConfirmed = await swal.confirmDialog({
+        title: 'Hapus Pengguna?',
+        text: `Akun "${u.name}" (${u.email}) akan dihapus dari sistem.`,
+        confirmButtonText: 'Ya, Hapus',
+        confirmButtonColor: '#ef4444',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+        await supabase.from('profiles').delete().eq('id', u.id);
+        swal.toastSuccess('Pengguna berhasil dihapus.');
+        loadUsers();
+    } catch (err: any) {
+        swal.toastError(err.message || 'Gagal menghapus pengguna.');
+    }
+};
+
 const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
     return new Date(dateStr).toLocaleDateString('id-ID', {
@@ -179,6 +274,10 @@ onMounted(() => {
             </div>
 
             <div class="flex items-center gap-2">
+                <Button variant="secondary" size="md" @click="isBulkModalOpen = true">
+                    <UploadCloud class="mr-1.5 h-4 w-4" />
+                    <span>Import Massal</span>
+                </Button>
                 <Button variant="primary" size="md" @click="isAddManualOpen = true">
                     <UserPlus class="mr-1.5 h-4 w-4" />
                     <span>Tambah Pengguna</span>
@@ -304,14 +403,34 @@ onMounted(() => {
                                     {{ formatDate(u.created_at) }}
                                 </td>
                                 <td class="px-6 py-3.5 text-right">
-                                    <button
-                                        type="button"
-                                        @click="openEditModal(u)"
-                                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
-                                    >
-                                        <Edit3 class="h-3 w-3" />
-                                        <span>Ubah Role</span>
-                                    </button>
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        <button
+                                            type="button"
+                                            @click="openEditModal(u)"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+                                            title="Ubah peran"
+                                        >
+                                            <Edit3 class="h-3 w-3" />
+                                            <span>Role</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            @click="handleResetPassword(u)"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 text-[11px] font-semibold text-purple-700 dark:border-purple-900 dark:bg-purple-950/60 dark:text-purple-300"
+                                            title="Reset kata sandi & buat link WA"
+                                        >
+                                            <Key class="h-3 w-3" />
+                                            <span>Reset WA</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            @click="deleteUser(u)"
+                                            class="inline-flex items-center p-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 text-rose-600 dark:border-rose-900 dark:hover:bg-rose-950"
+                                            title="Hapus pengguna"
+                                        >
+                                            <Trash2 class="h-3 w-3" />
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         </tbody>
@@ -385,6 +504,49 @@ onMounted(() => {
             <template #footer>
                 <Button variant="secondary" size="sm" @click="isEditModalOpen = false">Batal</Button>
                 <Button variant="primary" size="sm" @click="saveEditUser">Simpan Perubahan</Button>
+            </template>
+        </Modal>
+
+        <!-- MODAL: BULK IMPORT USERS -->
+        <Modal :show="isBulkModalOpen" title="Import Massal Pengguna" @close="isBulkModalOpen = false">
+            <div class="space-y-4">
+                <div class="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-100 dark:bg-indigo-950/40 dark:border-indigo-900 text-xs text-indigo-800 dark:text-indigo-300 space-y-1">
+                    <p class="font-bold">Format Baris Teks (CSV / Delimiter):</p>
+                    <code class="block font-mono text-[11px] text-indigo-900 dark:text-indigo-200">Nama, Email, Password, Role, WhatsApp, CourseIDs</code>
+                    <p class="text-[10px] text-indigo-600 dark:text-indigo-400">Contoh: <code>Fauzan, fauzan@gmail.com, Pass123, STUDENT, 08123456789, 1:2</code></p>
+                    <p class="text-[10px] text-indigo-600 dark:text-indigo-400">Anda juga dapat menempelkan langsung array JSON.</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <Select v-model="bulkForm.default_role" label="Peran Default (Role)">
+                        <option value="STUDENT">STUDENT (Siswa)</option>
+                        <option value="INSTRUCTOR">INSTRUCTOR (Instruktur)</option>
+                        <option value="ADMIN">ADMIN (Administrator)</option>
+                    </Select>
+                    <Input
+                        v-model="bulkForm.default_password"
+                        label="Password Default"
+                        placeholder="Mio123456!"
+                    />
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Data Pengguna (Teks Multiline / JSON) *
+                    </label>
+                    <textarea
+                        v-model="bulkForm.raw_users"
+                        rows="6"
+                        placeholder="Ahmad Fauzan, ahmad@gmail.com, Pass123, STUDENT, 08123456789&#10;Siti Aisyah, siti@gmail.com, Pass123, STUDENT, 08198765432"
+                        class="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white font-mono text-xs text-slate-900 focus:border-indigo-600 focus:outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                    ></textarea>
+                </div>
+            </div>
+            <template #footer>
+                <Button variant="secondary" size="sm" @click="isBulkModalOpen = false">Batal</Button>
+                <Button variant="primary" size="sm" :disabled="isSubmittingBulk" @click="handleBulkImport">
+                    {{ isSubmittingBulk ? 'Memproses Import...' : 'Mulai Import Massal' }}
+                </Button>
             </template>
         </Modal>
     </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import Button from '@/components/UI/Button.vue'
 import Badge from '@/components/UI/Badge.vue'
 import {
@@ -113,8 +113,10 @@ const getFeatureIcon = (name: string) => {
   }
 }
 
+const { data: homepageLp } = await useFetch<any>('/api/lp/__homepage__')
+
 useHead({
-  title: 'MIO Learning Academy — Manarul Ilmi Online Learning Academy',
+  title: computed(() => homepageLp.value?.landingPage?.name || 'MIO Learning Academy — Manarul Ilmi Online Learning Academy'),
   meta: [
     { name: 'description', content: 'Platform e-learning terdepan dengan kurikulum komprehensif, video pembelajaran interaktif, evaluasi kuis terstruktur, dan sertifikat resmi.' }
   ]
@@ -122,7 +124,16 @@ useHead({
 </script>
 
 <template>
-  <div>
+  <div v-if="homepageLp?.html" class="w-full min-h-screen bg-slate-950">
+    <iframe
+      :srcdoc="homepageLp.html"
+      class="fixed inset-0 w-screen h-screen border-none z-50 bg-slate-950"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+    ></iframe>
+  </div>
+
+  <div v-else>
+
     <!-- ==================================================== -->
     <!-- 1. HERO SECTION                                      -->
     <!-- ==================================================== -->

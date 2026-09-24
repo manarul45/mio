@@ -97,22 +97,20 @@ const submitReview = async () => {
   isSubmittingReview.value = true
 
   try {
-    const { error } = await supabase
-      .from('reviews')
-      .upsert({
-        user_id: user.value.id,
-        course_id: course.value.id,
+    await $fetch(`/api/courses/${slug}/reviews`, {
+      method: 'POST',
+      body: {
         rating: reviewRating.value,
         review_text: reviewText.value,
-      })
-
-    if (error) throw error
+      },
+    })
 
     swal.toastSuccess('Ulasan Anda berhasil dikirim!')
     isReviewModalOpen.value = false
+    reviewText.value = ''
     refreshCourse()
   } catch (err: any) {
-    swal.error('Gagal mengirim ulasan', err.message)
+    swal.error('Gagal mengirim ulasan', err.data?.statusMessage || err.message)
   } finally {
     isSubmittingReview.value = false
   }
@@ -456,9 +454,9 @@ useHead({
                 <div class="flex items-center gap-2">
                   <Star class="h-5 w-5 fill-amber-400 text-amber-400" />
                   <h2 class="text-xl font-bold text-slate-900 dark:text-white">
-                    5.0 Rating Kursus
+                    {{ course.average_rating || '5.0' }} Rating Kursus
                   </h2>
-                  <span class="text-xs text-slate-400">(12 ulasan siswa)</span>
+                  <span class="text-xs text-slate-400">({{ course.total_reviews || 0 }} ulasan siswa)</span>
                 </div>
               </div>
 
@@ -474,7 +472,55 @@ useHead({
               </Button>
             </div>
 
-            <div class="text-center py-6 text-xs text-slate-400">
+            <!-- Reviews List -->
+            <div v-if="course.reviews && course.reviews.length > 0" class="space-y-4">
+              <div
+                v-for="rev in course.reviews"
+                :key="rev.id"
+                class="p-5 rounded-2xl bg-slate-50 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-800 space-y-3"
+              >
+                <div class="flex items-start justify-between">
+                  <div class="flex items-center gap-3">
+                    <div class="h-9 w-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs dark:bg-indigo-950 dark:text-indigo-300">
+                      {{ rev.user?.name ? rev.user.name[0].toUpperCase() : 'S' }}
+                    </div>
+                    <div>
+                      <p class="font-bold text-xs text-slate-900 dark:text-white">{{ rev.user?.name || 'Siswa MIO' }}</p>
+                      <div class="flex items-center gap-1 mt-0.5">
+                        <Star
+                          v-for="st in 5"
+                          :key="st"
+                          class="h-3 w-3"
+                          :class="st <= rev.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-[10px] text-slate-400">
+                    {{ new Date(rev.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) }}
+                  </span>
+                </div>
+
+                <p class="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                  {{ rev.review_text }}
+                </p>
+
+                <!-- Instructor Reply -->
+                <div v-if="rev.instructor_reply" class="pl-4 border-l-2 border-indigo-500 pt-2 space-y-1">
+                  <div class="flex items-center gap-2">
+                    <Badge variant="purple" size="sm">Tanggapan Instruktur</Badge>
+                    <span v-if="rev.instructor_replied_at" class="text-[10px] text-slate-400">
+                      {{ new Date(rev.instructor_replied_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) }}
+                    </span>
+                  </div>
+                  <p class="text-xs text-slate-600 dark:text-slate-400 italic">
+                    {{ rev.instructor_reply }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="text-center py-6 text-xs text-slate-400">
               Belum ada ulasan untuk kursus ini. Jadilah siswa pertama yang memberikan ulasan!
             </div>
           </div>

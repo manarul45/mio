@@ -66,6 +66,7 @@ const course = ref<any>({
 });
 
 const categories = ref<any[]>([]);
+const isUploadingThumbnail = ref(false);
 
 // Section & Lesson Modals
 const isSectionModalOpen = ref(false);
@@ -807,6 +808,36 @@ const saveCourseInfo = async () => {
     }
 };
 
+const handleThumbnailUpload = async (event: any) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    isUploadingThumbnail.value = true;
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('bucket', 'courses');
+        formData.append('folder', 'thumbnails');
+
+        const res: any = await $fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (res?.url) {
+            course.value.thumbnail = res.url;
+            swal.toastSuccess('Thumbnail berhasil diunggah!');
+        } else {
+            throw new Error(res?.message || 'Gagal mengunggah thumbnail');
+        }
+    } catch (error: any) {
+        swal.toastError(error.data?.statusMessage || error.message || 'Gagal mengunggah thumbnail.');
+    } finally {
+        isUploadingThumbnail.value = false;
+        event.target.value = '';
+    }
+};
+
 const submitForReview = async () => {
     const ok = await swal.confirmDialog({
         title: 'Ajukan Review Publikasi?',
@@ -1324,11 +1355,31 @@ onMounted(() => {
                         />
                     </div>
 
-                    <Input
-                        v-model="course.thumbnail"
-                        label="URL Gambar Thumbnail"
-                        placeholder="https://..."
-                    />
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                            Thumbnail Gambar Kursus
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <input
+                                type="text"
+                                v-model="course.thumbnail"
+                                placeholder="Tempel URL gambar atau upload file..."
+                                class="flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                            />
+                            <label class="cursor-pointer px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 transition shadow-sm">
+                                <Loader2 v-if="isUploadingThumbnail" class="h-4 w-4 animate-spin" />
+                                <UploadCloud v-else class="h-4 w-4" />
+                                <span>{{ isUploadingThumbnail ? 'Mengunggah...' : 'Upload File' }}</span>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    @change="handleThumbnailUpload"
+                                    class="hidden"
+                                    :disabled="isUploadingThumbnail"
+                                />
+                            </label>
+                        </div>
+                    </div>
 
                     <Input
                         v-model="course.preview_video_id"

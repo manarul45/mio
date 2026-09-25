@@ -72,24 +72,24 @@ const handleThumbnailUpload = async (event: any) => {
 
     isUploadingThumbnail.value = true;
     try {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
-        const filePath = `thumbnails/${fileName}`;
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('bucket', 'courses');
+        formData.append('folder', 'thumbnails');
 
-        const { error: uploadError } = await supabase.storage
-            .from('course-assets')
-            .upload(filePath, file);
+        const res: any = await $fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+        });
 
-        if (uploadError) throw uploadError;
-
-        const { data: publicUrlData } = supabase.storage
-            .from('course-assets')
-            .getPublicUrl(filePath);
-
-        form.value.thumbnail = publicUrlData.publicUrl;
-        swal.toastSuccess('Thumbnail berhasil diunggah!');
+        if (res?.url) {
+            form.value.thumbnail = res.url;
+            swal.toastSuccess('Thumbnail berhasil diunggah!');
+        } else {
+            throw new Error(res?.message || 'Gagal mengunggah thumbnail');
+        }
     } catch (error: any) {
-        swal.toastError(error.message || 'Gagal mengunggah thumbnail.');
+        swal.toastError(error.data?.statusMessage || error.message || 'Gagal mengunggah thumbnail.');
     } finally {
         isUploadingThumbnail.value = false;
         event.target.value = '';

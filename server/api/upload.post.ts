@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   }
 
   let fileItem: any = null
-  let bucket = 'materials'
+  let bucket = 'courses'
   let customFolder = ''
 
   for (const item of formData) {
@@ -31,9 +31,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Berkas file tidak ditemukan.' })
   }
 
-  const allowedBuckets = ['courses', 'avatars', 'certificates', 'receipts', 'materials']
+  const allowedBuckets = ['courses', 'course-assets', 'avatars', 'certificates', 'receipts', 'materials']
   if (!allowedBuckets.includes(bucket)) {
-    bucket = 'materials'
+    bucket = 'courses'
   }
 
   // Generate safe unique filename
@@ -48,21 +48,51 @@ export default defineEventHandler(async (event) => {
   const filePath = `${folderPath}${safeFilename}`
 
   const client = getAdminSupabaseClient(event)
+  const isPublicBucket = ['courses', 'course-assets', 'avatars', 'certificates'].includes(bucket)
 
-  const { data: uploadData, error: uploadError } = await client.storage
+  // Auto-ensure bucket exists in Supabase Storage
+  try {
+    const { data: bData, error: bError } = await client.storage.getBucket(bucket)
+    if (bError || !bData) {
+      await client.storage.createBucket(bucket, {
+        public: isPublicBucket,
+      })
+    }
+  } catch (bErr) {
+    console.warn('Auto-create bucket attempt failed or already exists:', bErr)
+  }
+
+  let { data: uploadData, error: uploadError } = await client.storage
     .from(bucket)
     .upload(filePath, fileItem.data, {
       contentType: fileItem.type || 'application/octet-stream',
       upsert: true,
     })
 
+  // If failed with bucket not found, attempt creation and retry once
+  if (uploadError && (
+    uploadError.message?.toLowerCase().includes('not found') ||
+    (uploadError as any).statusCode === '404' ||
+    (uploadError as any).code === 'NoSuchBucket'
+  )) {
+    try {
+      await client.storage.createBucket(bucket, { public: isPublicBucket })
+      const retryResult = await client.storage
+        .from(bucket)
+        .upload(filePath, fileItem.data, {
+          contentType: fileItem.type || 'application/octet-stream',
+          upsert: true,
+        })
+      uploadData = retryResult.data
+      uploadError = retryResult.error
+    } catch {}
+  }
+
   if (uploadError) {
     throw createError({ statusCode: 500, statusMessage: 'Gagal mengunggah file ke penyimpanan: ' + uploadError.message })
   }
 
   let fileUrl = ''
-  const isPublicBucket = ['courses', 'avatars', 'certificates'].includes(bucket)
-
   if (isPublicBucket) {
     const { data: urlData } = client.storage.from(bucket).getPublicUrl(filePath)
     fileUrl = urlData.publicUrl

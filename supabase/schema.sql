@@ -586,6 +586,7 @@ CREATE POLICY "Users manage own replies" ON public.lesson_discussion_replies FOR
 INSERT INTO storage.buckets (id, name, public)
 VALUES 
     ('courses', 'courses', true),
+    ('course-assets', 'course-assets', true),
     ('avatars', 'avatars', true),
     ('certificates', 'certificates', true),
     ('receipts', 'receipts', false),

@@ -122,7 +122,7 @@ onMounted(() => {
                 >
                     <div class="flex gap-4 items-start min-w-0">
                         <img
-                            :src="course.thumbnail || 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&q=80'"
+                            :src="course.thumbnail || course.thumbnail_url || 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&q=80'"
                             :alt="course.title"
                             class="h-20 w-32 rounded-xl object-cover border border-slate-200 dark:border-slate-800 shrink-0"
                         />

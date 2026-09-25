@@ -132,7 +132,7 @@ const submit = async () => {
                 language: form.value.language,
                 price: Number(form.value.price) || 0,
                 discount_price: form.value.discount_price ? Number(form.value.discount_price) : null,
-                thumbnail: form.value.thumbnail || 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&q=80',
+                thumbnail_url: form.value.thumbnail || 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&q=80',
                 preview_video_id: form.value.preview_video_id,
                 learning_objectives: form.value.learning_objectives.filter(Boolean),
                 requirements: form.value.requirements.filter(Boolean),
@@ -291,6 +291,9 @@ onMounted(() => {
                                     :disabled="isUploadingThumbnail"
                                 />
                             </label>
+                        </div>
+                        <div v-if="form.thumbnail" class="mt-2 relative w-48 aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
+                            <img :src="form.thumbnail" alt="Thumbnail Preview" class="w-full h-full object-cover" />
                         </div>
                     </div>
 

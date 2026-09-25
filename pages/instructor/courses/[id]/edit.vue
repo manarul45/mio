@@ -118,6 +118,7 @@ const loadCourseDetails = async () => {
 
         course.value = {
             ...data,
+            thumbnail: data.thumbnail_url || data.thumbnail || '',
             learning_objectives: data.learning_objectives?.length ? data.learning_objectives : [''],
             requirements: data.requirements?.length ? data.requirements : [''],
             target_audience: data.target_audience?.length ? data.target_audience : [''],
@@ -791,7 +792,7 @@ const saveCourseInfo = async () => {
                 language: course.value.language,
                 price: Number(course.value.price) || 0,
                 discount_price: course.value.discount_price ? Number(course.value.discount_price) : null,
-                thumbnail: course.value.thumbnail,
+                thumbnail_url: course.value.thumbnail || null,
                 preview_video_id: course.value.preview_video_id,
                 learning_objectives: course.value.learning_objectives.filter(Boolean),
                 requirements: course.value.requirements.filter(Boolean),
@@ -1378,6 +1379,9 @@ onMounted(() => {
                                     :disabled="isUploadingThumbnail"
                                 />
                             </label>
+                        </div>
+                        <div v-if="course.thumbnail" class="mt-2 relative w-48 aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
+                            <img :src="course.thumbnail" alt="Thumbnail Preview" class="w-full h-full object-cover" />
                         </div>
                     </div>
 

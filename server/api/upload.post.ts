@@ -1,5 +1,6 @@
 import { serverSupabaseUser } from '#supabase/server'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { uploadToCloudinary } from '~/server/utils/cloudinaryService'
 import { readMultipartFormData } from 'h3'
 
 export default defineEventHandler(async (event) => {
@@ -31,13 +32,45 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Berkas file tidak ditemukan.' })
   }
 
+  const originalName = fileItem.filename || 'upload.bin'
+  const mimeType = fileItem.type || 'application/octet-stream'
+
+  // ============================================================================
+  // 1. CLOUDINARY UPLOADER (Primary for images & media)
+  // ============================================================================
+  try {
+    const cloudinaryRes = await uploadToCloudinary(
+      fileItem.data,
+      mimeType,
+      {
+        folder: customFolder || 'courses/thumbnails',
+        filename: originalName,
+      },
+      event
+    )
+
+    if (cloudinaryRes.success && cloudinaryRes.url) {
+      return {
+        success: true,
+        url: cloudinaryRes.url,
+        provider: 'cloudinary',
+        filename: originalName,
+        size: fileItem.data.length,
+        mimeType,
+      }
+    }
+  } catch (cloudErr) {
+    console.warn('Cloudinary upload attempt error, falling back to Supabase:', cloudErr)
+  }
+
+  // ============================================================================
+  // 2. FALLBACK: SUPABASE STORAGE
+  // ============================================================================
   const allowedBuckets = ['courses', 'course-assets', 'avatars', 'certificates', 'receipts', 'materials']
   if (!allowedBuckets.includes(bucket)) {
     bucket = 'courses'
   }
 
-  // Generate safe unique filename
-  const originalName = fileItem.filename || 'upload.bin'
   const ext = originalName.split('.').pop()?.toLowerCase() || 'bin'
   const baseName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_')
   const timestamp = Date.now()
@@ -65,7 +98,7 @@ export default defineEventHandler(async (event) => {
   let { data: uploadData, error: uploadError } = await client.storage
     .from(bucket)
     .upload(filePath, fileItem.data, {
-      contentType: fileItem.type || 'application/octet-stream',
+      contentType: mimeType,
       upsert: true,
     })
 
@@ -80,7 +113,7 @@ export default defineEventHandler(async (event) => {
       const retryResult = await client.storage
         .from(bucket)
         .upload(filePath, fileItem.data, {
-          contentType: fileItem.type || 'application/octet-stream',
+          contentType: mimeType,
           upsert: true,
         })
       uploadData = retryResult.data
@@ -108,10 +141,11 @@ export default defineEventHandler(async (event) => {
   return {
     success: true,
     url: fileUrl,
+    provider: 'supabase',
     path: filePath,
     bucket,
     filename: originalName,
     size: fileItem.data.length,
-    mimeType: fileItem.type,
+    mimeType,
   }
 })

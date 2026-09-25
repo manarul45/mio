@@ -1,9 +1,12 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { getAuthenticatedUserId } from '~/server/utils/authHelper'
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user) {
+  const query = getQuery(event)
+  const client = getAdminSupabaseClient(event)
+
+  const userId = await getAuthenticatedUserId(event, query?.user_id as string)
+  if (!userId) {
     throw createError({ statusCode: 401, statusMessage: 'Harap login terlebih dahulu' })
   }
 
@@ -11,8 +14,6 @@ export default defineEventHandler(async (event) => {
   if (!courseId) {
     throw createError({ statusCode: 400, statusMessage: 'ID kursus diperlukan' })
   }
-
-  const client = getAdminSupabaseClient(event)
 
   const { data, error } = await client
     .from('courses')

@@ -19,6 +19,7 @@ import {
 
 definePageMeta({
     layout: 'dashboard',
+    middleware: ['auth'],
 });
 
 const { user, isAdmin } = useAuthProfile();
@@ -51,10 +52,21 @@ const getStatusBadge = (status: string) => {
 };
 
 const loadCourses = async () => {
-    if (!user.value) return;
     loading.value = true;
     try {
-        const data = await $fetch<any[]>('/api/instructor/courses');
+        const { data: sessionData } = await supabase.auth.getSession();
+        const sessionUser = sessionData?.session?.user;
+        const currentUserId = user.value?.id || (user.value as any)?.sub || sessionUser?.id;
+        const token = sessionData?.session?.access_token;
+        const headers: Record<string, string> = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const data = await $fetch<any[]>('/api/instructor/courses', {
+            headers,
+            query: currentUserId ? { user_id: currentUserId } : undefined
+        });
         courses.value = data || [];
     } catch (err) {
         console.error('Failed to load instructor courses:', err);
@@ -73,8 +85,19 @@ const deleteCourse = async (course: any) => {
 
     if (confirmed) {
         try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            const sessionUser = sessionData?.session?.user;
+            const currentUserId = user.value?.id || (user.value as any)?.sub || sessionUser?.id;
+            const token = sessionData?.session?.access_token;
+            const headers: Record<string, string> = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             await $fetch(`/api/instructor/courses/${course.id}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers,
+                query: currentUserId ? { user_id: currentUserId } : undefined
             });
 
             swal.toastSuccess('Kursus berhasil dihapus.');

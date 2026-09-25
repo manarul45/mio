@@ -18,8 +18,10 @@ import {
 
 definePageMeta({
     layout: 'dashboard',
+    middleware: ['auth'],
 });
 
+const route = useRoute();
 const { user } = useAuthProfile();
 const supabase = useSupabaseClient();
 const swal = useSwal();
@@ -112,21 +114,33 @@ const submit = async () => {
         return;
     }
 
-    if (!user.value) {
-        swal.toastError('Harap login terlebih dahulu');
+    const { data: sessionData } = await supabase.auth.getSession();
+    const sessionUser = sessionData?.session?.user;
+    const currentUserId = user.value?.id || (user.value as any)?.sub || sessionUser?.id;
+    const token = sessionData?.session?.access_token;
+
+    if (!currentUserId) {
+        swal.toastError('Sesi login tidak ditemukan. Harap login kembali.');
+        navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`);
         return;
     }
 
     isSubmitting.value = true;
     try {
+        const headers: Record<string, string> = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const res: any = await $fetch('/api/instructor/courses', {
             method: 'POST',
+            headers,
             body: {
                 title: form.value.title,
                 subtitle: form.value.subtitle,
                 description: form.value.description,
                 category_id: form.value.category_id || null,
-                instructor_id: user.value.id,
+                instructor_id: currentUserId,
                 level: form.value.level,
                 language: form.value.language,
                 price: Number(form.value.price) || 0,

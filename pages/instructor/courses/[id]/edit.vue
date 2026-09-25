@@ -33,6 +33,7 @@ import {
 
 definePageMeta({
     layout: 'dashboard',
+    middleware: ['auth'],
 });
 
 const route = useRoute();
@@ -113,7 +114,19 @@ const loadCourseDetails = async () => {
         const { data: catData } = await supabase.from('categories').select('*').order('name');
         categories.value = catData || [];
 
-        const data: any = await $fetch(`/api/instructor/courses/${courseId}`);
+        const { data: sessionData } = await supabase.auth.getSession();
+        const sessionUser = sessionData?.session?.user;
+        const currentUserId = user.value?.id || (user.value as any)?.sub || sessionUser?.id;
+        const token = sessionData?.session?.access_token;
+        const headers: Record<string, string> = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const data: any = await $fetch(`/api/instructor/courses/${courseId}`, {
+            headers,
+            query: currentUserId ? { user_id: currentUserId } : undefined
+        });
         const sortedSections = data.sections || [];
 
         course.value = {
@@ -781,10 +794,20 @@ const handleBulkJsonImport = async () => {
 const saveCourseInfo = async () => {
     saving.value = true;
     try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const sessionUser = sessionData?.session?.user;
+        const currentUserId = user.value?.id || (user.value as any)?.sub || sessionUser?.id;
+        const token = sessionData?.session?.access_token;
+        const headers: Record<string, string> = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         await $fetch(`/api/instructor/courses/${courseId}`, {
             method: 'PATCH',
+            headers,
             body: {
-                instructor_id: user.value?.id,
+                instructor_id: currentUserId,
                 title: course.value.title,
                 subtitle: course.value.subtitle,
                 description: course.value.description,
@@ -848,10 +871,20 @@ const submitForReview = async () => {
     if (!ok) return;
 
     try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const sessionUser = sessionData?.session?.user;
+        const currentUserId = user.value?.id || (user.value as any)?.sub || sessionUser?.id;
+        const token = sessionData?.session?.access_token;
+        const headers: Record<string, string> = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         await $fetch(`/api/instructor/courses/${courseId}`, {
             method: 'PATCH',
+            headers,
             body: {
-                instructor_id: user.value?.id,
+                instructor_id: currentUserId,
                 status: 'submitted'
             }
         });

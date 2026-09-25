@@ -1,22 +1,23 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { getAuthenticatedUserId } from '~/server/utils/authHelper'
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user) {
+  const query = getQuery(event)
+  const client = getAdminSupabaseClient(event)
+
+  const userId = await getAuthenticatedUserId(event, query?.user_id as string)
+  if (!userId) {
     throw createError({ statusCode: 401, statusMessage: 'Harap login terlebih dahulu' })
   }
-
-  const client = getAdminSupabaseClient(event)
 
   // Check user role in profile
   const { data: profile } = await client
     .from('profiles')
-    .select('role')
-    .eq('id', user.id)
+    .select('role, email')
+    .eq('id', userId)
     .single()
 
-  const isAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPER_ADMIN' || user.email?.startsWith('admin@')
+  const isAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPER_ADMIN' || profile?.email?.startsWith('admin@')
 
   let dbQuery = client
     .from('courses')

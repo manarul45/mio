@@ -1,14 +1,7 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { getAuthenticatedUserId } from '~/server/utils/authHelper'
 
 export default defineEventHandler(async (event) => {
-  let user = null
-  try {
-    user = await serverSupabaseUser(event)
-  } catch (e) {
-    // ignore
-  }
-
   const courseId = getRouterParam(event, 'id')
   if (!courseId) {
     throw createError({ statusCode: 400, statusMessage: 'ID kursus diperlukan' })
@@ -17,7 +10,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const client = getAdminSupabaseClient(event)
 
-  const instructorId = user?.id || body?.instructor_id
+  const instructorId = await getAuthenticatedUserId(event, body?.instructor_id)
   if (!instructorId) {
     throw createError({ statusCode: 401, statusMessage: 'Harap login terlebih dahulu' })
   }

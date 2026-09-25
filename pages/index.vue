@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import Button from '@/components/UI/Button.vue'
 import Badge from '@/components/UI/Badge.vue'
 import {

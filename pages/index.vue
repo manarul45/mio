@@ -116,7 +116,7 @@ const getFeatureIcon = (name: string) => {
 const { data: homepageLp } = await useFetch<any>('/api/lp/__homepage__')
 
 useHead({
-  title: computed(() => homepageLp.value?.landingPage?.name || 'MIO Learning Academy — Manarul Ilmi Online Learning Academy'),
+  title: 'MIO Academy',
   meta: [
     { name: 'description', content: 'Platform e-learning terdepan dengan kurikulum komprehensif, video pembelajaran interaktif, evaluasi kuis terstruktur, dan sertifikat resmi.' }
   ]

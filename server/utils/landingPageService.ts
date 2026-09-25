@@ -21,7 +21,7 @@ export const WHITELISTED_SHORTCODES: ShortcodeItem[] = [
 ]
 
 export function resolveShortcodes(content: string, course?: any, settings?: Record<string, string>): string {
-  const siteName = settings?.platform_name || 'MIO Learning Academy'
+  const siteName = settings?.platform_name || 'MIO Academy'
   const siteLogo = settings?.site_logo || 'https://res.cloudinary.com/yukfutsal/image/upload/v1788230434/Untitled_200_x_200_px_1_wvt9eg.png'
   const adminWhatsapp = settings?.admin_whatsapp_number || '6281234567890'
 
@@ -42,7 +42,7 @@ export function resolveShortcodes(content: string, course?: any, settings?: Reco
       '{{course_price}}': priceText,
       '{{course_thumbnail}}': course.thumbnail_url || 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800',
       '{{course_url}}': `/courses/${course.slug || ''}`,
-      '{{instructor_name}}': course.instructor?.name || 'Instruktur MIO Learning Academy',
+      '{{instructor_name}}': course.instructor?.name || 'Instruktur MIO Academy',
       '{{instructor_avatar}}': course.instructor?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
       '{{instructor_bio}}': course.instructor?.bio || course.instructor?.headline || 'Pendidik & Praktisi Ahli',
       '{{category_name}}': course.category?.name || 'Umum',

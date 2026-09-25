@@ -73,16 +73,14 @@ const deleteCourse = async (course: any) => {
 
     if (confirmed) {
         try {
-            const { error } = await supabase
-                .from('courses')
-                .delete()
-                .eq('id', course.id);
+            await $fetch(`/api/instructor/courses/${course.id}`, {
+                method: 'DELETE'
+            });
 
-            if (error) throw error;
             swal.toastSuccess('Kursus berhasil dihapus.');
             loadCourses();
         } catch (err: any) {
-            swal.toastError(err.message || 'Gagal menghapus kursus');
+            swal.toastError(err.data?.statusMessage || err.message || 'Gagal menghapus kursus');
         }
     }
 };

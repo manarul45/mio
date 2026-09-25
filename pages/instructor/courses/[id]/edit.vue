@@ -781,9 +781,10 @@ const handleBulkJsonImport = async () => {
 const saveCourseInfo = async () => {
     saving.value = true;
     try {
-        const { error } = await supabase
-            .from('courses')
-            .update({
+        await $fetch(`/api/instructor/courses/${courseId}`, {
+            method: 'PATCH',
+            body: {
+                instructor_id: user.value?.id,
                 title: course.value.title,
                 subtitle: course.value.subtitle,
                 description: course.value.description,
@@ -794,16 +795,15 @@ const saveCourseInfo = async () => {
                 discount_price: course.value.discount_price ? Number(course.value.discount_price) : null,
                 thumbnail_url: course.value.thumbnail || null,
                 preview_video_id: course.value.preview_video_id,
-                learning_objectives: course.value.learning_objectives.filter(Boolean),
-                requirements: course.value.requirements.filter(Boolean),
-                target_audience: course.value.target_audience.filter(Boolean),
-            })
-            .eq('id', courseId);
+                learning_objectives: course.value.learning_objectives?.filter(Boolean),
+                requirements: course.value.requirements?.filter(Boolean),
+                target_audience: course.value.target_audience?.filter(Boolean),
+            }
+        });
 
-        if (error) throw error;
         swal.toastSuccess('Perubahan kursus berhasil disimpan!');
     } catch (err: any) {
-        swal.toastError(err.message || 'Gagal menyimpan perubahan.');
+        swal.toastError(err.data?.statusMessage || err.message || 'Gagal menyimpan perubahan.');
     } finally {
         saving.value = false;
     }
@@ -848,15 +848,18 @@ const submitForReview = async () => {
     if (!ok) return;
 
     try {
-        await supabase
-            .from('courses')
-            .update({ status: 'submitted' })
-            .eq('id', courseId);
+        await $fetch(`/api/instructor/courses/${courseId}`, {
+            method: 'PATCH',
+            body: {
+                instructor_id: user.value?.id,
+                status: 'submitted'
+            }
+        });
 
         course.value.status = 'submitted';
         swal.toastSuccess('Kursus berhasil diajukan untuk review!');
     } catch (err: any) {
-        swal.toastError(err.message);
+        swal.toastError(err.data?.statusMessage || err.message);
     }
 };
 

@@ -112,18 +112,17 @@ const submit = async () => {
         return;
     }
 
-    if (!user.value) return;
+    if (!user.value) {
+        swal.toastError('Harap login terlebih dahulu');
+        return;
+    }
 
     isSubmitting.value = true;
     try {
-        const baseSlug = slugify(form.value.title);
-        const uniqueSlug = `${baseSlug}-${Date.now().toString(36)}`;
-
-        const { data, error } = await supabase
-            .from('courses')
-            .insert({
+        const res: any = await $fetch('/api/instructor/courses', {
+            method: 'POST',
+            body: {
                 title: form.value.title,
-                slug: uniqueSlug,
                 subtitle: form.value.subtitle,
                 description: form.value.description,
                 category_id: form.value.category_id || null,
@@ -139,16 +138,18 @@ const submit = async () => {
                 target_audience: form.value.target_audience.filter(Boolean),
                 whatsapp_group_url: form.value.whatsapp_group_url,
                 status: 'draft',
-            })
-            .select()
-            .single();
+            }
+        });
 
-        if (error) throw error;
+        const createdCourse = res?.data;
+        if (!createdCourse?.id) {
+            throw new Error('Gagal mendapatkan ID kursus yang dibuat');
+        }
 
         swal.toastSuccess('Kursus baru berhasil dibuat! Membuka studio silabus...');
-        navigateTo(`/instructor/courses/${data.id}/edit`);
+        navigateTo(`/instructor/courses/${createdCourse.id}/edit`);
     } catch (err: any) {
-        swal.toastError(err.message || 'Gagal membuat kursus.');
+        swal.toastError(err.data?.statusMessage || err.message || 'Gagal membuat kursus.');
     } finally {
         isSubmitting.value = false;
     }

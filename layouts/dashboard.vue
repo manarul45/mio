@@ -65,11 +65,11 @@ const isActive = (path: string) => {
                 <NuxtLink to="/" class="flex items-center gap-3 overflow-hidden">
                     <img
                         src="https://res.cloudinary.com/yukfutsal/image/upload/v1788230434/Untitled_200_x_200_px_1_wvt9eg.png"
-                        alt="MIO Learning Academy Logo"
+                        alt="MIO Academy Logo"
                         class="h-9 w-9 shrink-0 object-contain rounded-xl"
                     />
                     <span v-if="isSidebarOpen" class="font-bold text-lg text-slate-900 dark:text-white truncate">
-                        MIO Learning Academy
+                        MIO Academy
                     </span>
                 </NuxtLink>
 
@@ -398,10 +398,10 @@ const isActive = (path: string) => {
                     <NuxtLink to="/" @click="isMobileSidebarOpen = false" class="flex items-center gap-3">
                         <img
                             src="https://res.cloudinary.com/yukfutsal/image/upload/v1788230434/Untitled_200_x_200_px_1_wvt9eg.png"
-                            alt="MIO Learning Academy Logo"
+                            alt="MIO Academy Logo"
                             class="h-9 w-9 shrink-0 object-contain rounded-xl"
                         />
-                        <span class="font-bold text-lg text-slate-900 dark:text-white">MIO Learning Academy</span>
+                        <span class="font-bold text-lg text-slate-900 dark:text-white">MIO Academy</span>
                     </NuxtLink>
 
                     <button

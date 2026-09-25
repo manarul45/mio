@@ -20,10 +20,10 @@ const isMobileMenuOpen = ref(false)
           <NuxtLink to="/" class="flex items-center gap-2.5 font-bold text-xl tracking-tight text-indigo-600 dark:text-indigo-400">
             <img
               src="https://res.cloudinary.com/yukfutsal/image/upload/v1788230434/Untitled_200_x_200_px_1_wvt9eg.png"
-              alt="MIO Learning Academy Logo"
+              alt="MIO Academy Logo"
               class="h-9 w-9 object-contain rounded-xl"
             />
-            <span class="text-slate-900 dark:text-white">MIO Learning Academy</span>
+            <span class="text-slate-900 dark:text-white">MIO Academy</span>
           </NuxtLink>
 
           <nav class="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-300">

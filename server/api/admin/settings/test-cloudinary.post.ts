@@ -1,11 +1,8 @@
-import { serverSupabaseUser } from '#supabase/server'
+import { requireAdmin } from '~/server/utils/authHelper'
 import crypto from 'crypto'
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  }
+  await requireAdmin(event)
 
   const body = await readBody(event)
   const {

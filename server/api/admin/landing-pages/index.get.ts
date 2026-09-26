@@ -4,8 +4,7 @@ import { WHITELISTED_SHORTCODES } from '~/server/utils/landingPageService'
 
 export default defineEventHandler(async (event) => {
   const client = getAdminSupabaseClient(event)
-await requireAdmin(event)
-  }
+  await requireAdmin(event)
 
   const query = getQuery(event)
   const search = (query.search as string) || ''

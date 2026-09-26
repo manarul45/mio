@@ -3,7 +3,7 @@ import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 
 export default defineEventHandler(async (event) => {
   const client = getAdminSupabaseClient(event)
-await requireAdmin(event)}
+  await requireAdmin(event)
 
   const query = getQuery(event)
   const status = (query.status as string) || 'all'

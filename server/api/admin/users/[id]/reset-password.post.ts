@@ -1,25 +1,11 @@
-import { serverSupabaseUser } from '#supabase/server'
+import { requireAdmin } from '~/server/utils/authHelper'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { logAuditAction } from '~/server/utils/auditLogger'
 
 export default defineEventHandler(async (event) => {
   const targetUserId = getRouterParam(event, 'id')
-  const adminUser = await serverSupabaseUser(event)
-  if (!adminUser) {
-    throw createError({ statusCode: 401, statusMessage: 'Silakan masuk.' })
-  }
-
   const client = getAdminSupabaseClient(event)
-
-  const { data: adminProfile } = await client
-    .from('profiles')
-    .select('role')
-    .eq('id', adminUser.id)
-    .single()
-
-  if (adminProfile?.role !== 'ADMIN' && adminProfile?.role !== 'SUPER_ADMIN') {
-    throw createError({ statusCode: 403, statusMessage: 'Akses khusus administrator.' })
-  }
+const { userId } = await requireAdmin(event)
 
   // 1. Fetch target user profile
   const { data: targetProfile, error: pErr } = await client
@@ -51,7 +37,7 @@ export default defineEventHandler(async (event) => {
   // 4. Log audit action
   await logAuditAction({
     event,
-    userId: adminUser.id,
+    userId: userId,
     action: 'user.password_reset_by_admin',
     entityType: 'User',
     entityId: targetProfile.id,

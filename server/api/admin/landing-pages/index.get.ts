@@ -1,23 +1,10 @@
-import { serverSupabaseUser } from '#supabase/server'
+import { requireAdmin } from '~/server/utils/authHelper'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { WHITELISTED_SHORTCODES } from '~/server/utils/landingPageService'
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Silakan masuk.' })
-  }
-
   const client = getAdminSupabaseClient(event)
-
-  const { data: profile } = await client
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  if (profile?.role !== 'ADMIN' && profile?.role !== 'SUPER_ADMIN') {
-    throw createError({ statusCode: 403, statusMessage: 'Akses khusus administrator.' })
+await requireAdmin(event)
   }
 
   const query = getQuery(event)

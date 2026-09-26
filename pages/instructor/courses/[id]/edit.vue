@@ -439,50 +439,77 @@ const editLesson = (lesson: any, sectionId: string) => {
         id: lesson.id,
         title: lesson.title,
         youtube_url: lesson.youtube_url || (lesson.youtube_video_id ? `https://youtube.com/watch?v=${lesson.youtube_video_id}` : ''),
-        duration_minutes: lesson.duration_minutes || 10,
+        duration_minutes: lesson.duration_seconds
+    ? Math.max(1, Math.round(Number(lesson.duration_seconds) / 60))
+    : (lesson.duration_minutes || 10),
         is_preview: !!lesson.is_preview,
         description: lesson.description || '',
     };
     isLessonModalOpen.value = true;
 };
 
+const slugify = (value: string) => {
+    const base = (value || '')
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+    const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    return `${base || 'materi'}-${suffix}`;
+};
+
 const extractYouTubeId = (url: string) => {
     if (!url) return '';
-    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-    return match ? match[1] : url.trim();
+    const trimmed = url.trim();
+    const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|shorts\/|live\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+    if (match) return match[1];
+    if (/^[\w-]{11}$/.test(trimmed)) return trimmed;
+    return '';
+};
+
+const lessonPayload = (title: string, youtubeUrl: string, durationMinutes: number, isPreview: boolean, description: string) => {
+    const videoId = extractYouTubeId(youtubeUrl);
+    if (!videoId) {
+        throw new Error(`Link YouTube untuk "${title}" tidak dikenali. Tempel tautan YouTube atau ID 11 karakter.`);
+    }
+    const minutes = Number(durationMinutes) || 0;
+    return {
+        title: title.trim(),
+        youtube_video_id: videoId,
+        duration_seconds: Math.max(0, Math.round(minutes * 60)),
+        is_preview: !!isPreview,
+        description: description || '',
+    };
 };
 
 const saveLesson = async () => {
     if (!lessonForm.value.title.trim() || !activeSectionIdForLesson.value) return;
     try {
-        const videoId = extractYouTubeId(lessonForm.value.youtube_url);
+        const payload = lessonPayload(
+            lessonForm.value.title,
+            lessonForm.value.youtube_url,
+            lessonForm.value.duration_minutes,
+            lessonForm.value.is_preview,
+            lessonForm.value.description,
+        );
         if (lessonForm.value.id) {
-            await supabase
+            const { error } = await supabase
                 .from('lessons')
-                .update({
-                    title: lessonForm.value.title,
-                    youtube_video_id: videoId,
-                    youtube_url: lessonForm.value.youtube_url,
-                    duration_minutes: lessonForm.value.duration_minutes,
-                    is_preview: lessonForm.value.is_preview,
-                    description: lessonForm.value.description,
-                })
+                .update(payload)
                 .eq('id', lessonForm.value.id);
+            if (error) throw error;
         } else {
             const currentSection = course.value.sections.find((s: any) => s.id === activeSectionIdForLesson.value);
             const nextOrder = (currentSection?.lessons?.length || 0) + 1;
-            await supabase
+            const { error } = await supabase
                 .from('lessons')
                 .insert({
+                    ...payload,
                     section_id: activeSectionIdForLesson.value,
-                    title: lessonForm.value.title,
-                    youtube_video_id: videoId,
-                    youtube_url: lessonForm.value.youtube_url,
-                    duration_minutes: lessonForm.value.duration_minutes,
-                    is_preview: lessonForm.value.is_preview,
-                    description: lessonForm.value.description,
+                    slug: slugify(lessonForm.value.title),
                     sort_order: nextOrder,
                 });
+            if (error) throw error;
         }
         isLessonModalOpen.value = false;
         swal.toastSuccess('Pelajaran video berhasil disimpan!');
@@ -702,67 +729,75 @@ const handleBulkJsonImport = async () => {
 
         for (let sIdx = 0; sIdx < parsed.length; sIdx++) {
             const sec = parsed[sIdx];
+            const sectionTitle = sec.title || `Modul ${sIdx + 1}`;
             const { data: newSec, error: sErr } = await supabase
-                .from('sections')
+                .from('course_sections')
                 .insert({
                     course_id: courseId,
-                    title: sec.title || `Modul ${sIdx + 1}`,
+                    title: sectionTitle,
                     description: sec.description || '',
-                    sort_order: sec.section_order || sIdx + 1,
+                    sort_order: sec.section_order || sec.sort_order || sIdx + 1,
                 })
                 .select()
                 .single();
 
             if (sErr) throw sErr;
 
-            // Insert Lessons
             if (Array.isArray(sec.lessons)) {
                 for (let lIdx = 0; lIdx < sec.lessons.length; lIdx++) {
                     const les = sec.lessons[lIdx];
-                    const vId = extractYouTubeId(les.youtube_url || les.youtube_video_id);
-                    await supabase
+                    const lessonTitle = les.title || `Pelajaran ${lIdx + 1}`;
+                    const payload = lessonPayload(
+                        lessonTitle,
+                        les.youtube_url || les.youtube_video_id || '',
+                        les.duration_minutes || 10,
+                        les.is_preview,
+                        les.description || '',
+                    );
+                    const { error: lessonErr } = await supabase
                         .from('lessons')
                         .insert({
+                            ...payload,
                             section_id: newSec.id,
-                            title: les.title || `Pelajaran ${lIdx + 1}`,
-                            youtube_video_id: vId,
-                            youtube_url: les.youtube_url,
-                            duration_minutes: les.duration_minutes || 10,
-                            is_preview: !!les.is_preview,
-                            description: les.description || '',
+                            slug: slugify(lessonTitle),
                             sort_order: lIdx + 1,
                         });
+                    if (lessonErr) throw lessonErr;
                 }
             }
 
-            // Insert Quizzes
             if (Array.isArray(sec.quizzes)) {
                 for (let qIdx = 0; qIdx < sec.quizzes.length; qIdx++) {
                     const qz = sec.quizzes[qIdx];
-                    const { data: newQz } = await supabase
+                    const quizTitle = qz.title || 'Kuis Evaluasi';
+                    const { data: newQz, error: quizErr } = await supabase
                         .from('quizzes')
                         .insert({
                             section_id: newSec.id,
-                            title: qz.title || 'Kuis Evaluasi',
+                            title: quizTitle,
+                            slug: slugify(quizTitle),
                             passing_score: qz.passing_score || 80,
                             sort_order: qIdx + 1,
                         })
                         .select()
                         .single();
 
+                    if (quizErr) throw quizErr;
+
                     if (newQz && Array.isArray(qz.questions)) {
                         for (let qnIdx = 0; qnIdx < qz.questions.length; qnIdx++) {
                             const qn = qz.questions[qnIdx];
-                            const { data: newQn } = await supabase
+                            const { data: newQn, error: questionErr } = await supabase
                                 .from('quiz_questions')
                                 .insert({
                                     quiz_id: newQz.id,
-                                    question: qn.question,
+                                    question_text: qn.question || qn.question_text || '',
                                     explanation: qn.explanation || '',
                                     sort_order: qnIdx + 1,
                                 })
                                 .select()
                                 .single();
+                            if (questionErr) throw questionErr;
 
                             if (newQn && Array.isArray(qn.options)) {
                                 const opts = qn.options.map((opt: any, optIdx: number) => ({
@@ -771,7 +806,8 @@ const handleBulkJsonImport = async () => {
                                     is_correct: typeof opt === 'object' ? !!opt.is_correct : optIdx === 0,
                                     sort_order: optIdx + 1,
                                 }));
-                                await supabase.from('quiz_options').insert(opts);
+                                const { error: optionErr } = await supabase.from('quiz_options').insert(opts);
+                                if (optionErr) throw optionErr;
                             }
                         }
                     }
@@ -1170,7 +1206,7 @@ onMounted(() => {
                                                 </Badge>
                                             </div>
                                             <p class="text-[11px] text-slate-400">
-                                                {{ item.duration_minutes || 10 }} Menit • {{ item.youtube_video_id ? 'ID: ' + item.youtube_video_id : 'Link video disiapkan' }}
+                                                {{ item.duration_seconds ? Math.max(1, Math.round(Number(item.duration_seconds) / 60)) : (item.duration_minutes || 10) }} Menit • {{ item.youtube_video_id ? 'ID: ' + item.youtube_video_id : 'Link video disiapkan' }} Menit • {{ item.youtube_video_id ? 'ID: ' + item.youtube_video_id : 'Link video disiapkan' }}
                                             </p>
                                         </div>
                                     </div>

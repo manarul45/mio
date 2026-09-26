@@ -1,24 +1,10 @@
-import { serverSupabaseUser } from '#supabase/server'
+import { requireAdmin } from '~/server/utils/authHelper'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { logAuditAction } from '~/server/utils/auditLogger'
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Silakan masuk.' })
-  }
-
   const client = getAdminSupabaseClient(event)
-
-  const { data: profile } = await client
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  if (profile?.role !== 'ADMIN' && profile?.role !== 'SUPER_ADMIN') {
-    throw createError({ statusCode: 403, statusMessage: 'Akses khusus administrator.' })
-  }
+const { userId } = await requireAdmin(event)
 
   const id = getRouterParam(event, 'id')
   if (!id) {
@@ -45,7 +31,7 @@ export default defineEventHandler(async (event) => {
 
   await logAuditAction({
     event,
-    userId: user.id,
+    userId: userId,
     action: 'landing_page.set_homepage',
     entityType: 'landing_pages',
     entityId: id,

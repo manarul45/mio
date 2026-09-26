@@ -1,4 +1,4 @@
-import { QuizWriteError, buildOptionRows, extractYouTubeId, slugifyTitle } from '~/server/utils/quizContent'
+import { QuizWriteError, buildOptionRows, extractYouTubeId, pickSectionByOrder, sectionOrderNumber, slugifyTitle } from '~/server/utils/quizContent'
 
 type DbClient = {
   from: (table: string) => any
@@ -168,41 +168,41 @@ export async function importCurriculum(client: DbClient, courseId: string, secti
     const createdQuizIds: number[] = []
     const createdLessonIds: number[] = []
 
+    const order = sectionOrderNumber(section, sIdx + 1)
+    let reusedExisting = false
+
     try {
-      const { data: sameTitle, error: sameTitleError } = await client
+      const { data: courseSections, error: courseSectionsError } = await client
         .from('course_sections')
-        .select('id, sort_order')
+        .select('id, title, sort_order')
         .eq('course_id', courseId)
-        .eq('title', title)
-      dbFail(sameTitleError, 'Gagal memeriksa modul')
+      dbFail(courseSectionsError, 'Gagal memeriksa modul')
 
-      const emptyIds: number[] = []
-      const filled: any[] = []
-      for (const row of sameTitle || []) {
-        const counts = await sectionCounts(client, row.id)
-        if (counts.lessons === 0 && counts.quizzes === 0) emptyIds.push(row.id)
-        else filled.push(row)
-      }
-
-      if (emptyIds.length > 0) {
-        const { error: deleteEmptyError } = await client.from('course_sections').delete().in('id', emptyIds)
-        dbFail(deleteEmptyError, 'Gagal menghapus modul kosong')
-      }
-
-      if (filled.length > 0) {
-        filled.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-        sectionId = filled[0].id
-        if (section.description) {
-          await client.from('course_sections').update({ description: section.description }).eq('id', sectionId)
-        }
+      const existing = pickSectionByOrder(courseSections || [], order)
+      if (existing) {
+        sectionId = existing.id
+        reusedExisting = true
       } else {
+        const emptyIds = (courseSections || [])
+          .filter((row: any) => row.title === title)
+          .map((row: any) => row.id)
+        const removable: number[] = []
+        for (const id of emptyIds) {
+          const counts = await sectionCounts(client, id)
+          if (counts.lessons === 0 && counts.quizzes === 0) removable.push(id)
+        }
+        if (removable.length > 0) {
+          const { error: deleteEmptyError } = await client.from('course_sections').delete().in('id', removable)
+          dbFail(deleteEmptyError, 'Gagal menghapus modul kosong')
+        }
+
         const { data: created, error: createError } = await client
           .from('course_sections')
           .insert({
             course_id: courseId,
             title,
             description: section.description || '',
-            sort_order: section.section_order || section.sort_order || sIdx + 1,
+            sort_order: order,
           })
           .select('id')
           .single()
@@ -245,6 +245,17 @@ export async function importCurriculum(client: DbClient, courseId: string, secti
         .eq('section_id', sectionId)
       dbFail(existingQuizError, 'Gagal memeriksa kuis')
 
+      const { data: existingLessons, error: existingLessonError } = await client
+        .from('lessons')
+        .select('sort_order')
+        .eq('section_id', sectionId)
+      dbFail(existingLessonError, 'Gagal memeriksa video')
+      const lastItemOrder = Math.max(
+        0,
+        ...(existingLessons || []).map((row: any) => Number(row.sort_order) || 0),
+        ...(existingQuizzes || []).map((row: any) => Number(row.sort_order) || 0),
+      )
+
       const quizzes = Array.isArray(section.quizzes) ? section.quizzes : []
       const replacedQuizIds: number[] = []
       let addedQuizzes = 0
@@ -253,7 +264,7 @@ export async function importCurriculum(client: DbClient, courseId: string, secti
         const quiz = quizzes[qIdx]
         const quizTitle = String(quiz.title || 'Kuis Evaluasi').trim()
         const previous = (existingQuizzes || []).filter((row: any) => row.title === quizTitle)
-        const sortOrder = previous[0]?.sort_order ?? ((existingQuizzes?.length || 0) + createdQuizIds.length + 1)
+        const sortOrder = previous[0]?.sort_order ?? (lastItemOrder + createdQuizIds.length + 1)
         const questions = Array.isArray(quiz.questions) ? quiz.questions : []
         const quizId = await saveQuizRecord(client, {
           sectionId: sectionId as number,
@@ -274,6 +285,23 @@ export async function importCurriculum(client: DbClient, courseId: string, secti
       if (replacedQuizIds.length > 0) {
         const { error: replaceError } = await client.from('quizzes').delete().in('id', replacedQuizIds)
         dbFail(replaceError, 'Gagal mengganti kuis lama')
+      }
+
+      if (reusedExisting) {
+        const { data: titled, error: titledError } = await client
+          .from('course_sections')
+          .select('id')
+          .eq('course_id', courseId)
+          .eq('title', title)
+        dbFail(titledError, 'Gagal memeriksa modul ganda')
+        for (const row of titled || []) {
+          if (row.id === sectionId) continue
+          const counts = await sectionCounts(client, row.id)
+          if (counts.lessons === 0) {
+            const { error: removeDuplicateError } = await client.from('course_sections').delete().eq('id', row.id)
+            dbFail(removeDuplicateError, 'Gagal menghapus modul latihan yang terpisah')
+          }
+        }
       }
 
       sectionCount += 1

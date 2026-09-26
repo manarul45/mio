@@ -76,6 +76,25 @@ export function buildOptionRows(question: any, sortFromImport: boolean) {
   return rows
 }
 
+/** Urutan modul di file dihitung dari 1, sama seperti urutan yang tampil di halaman kursus. */
+export function sectionOrderNumber(section: any, fallbackIndex: number) {
+  const raw = section?.section_order ?? section?.sort_order ?? fallbackIndex
+  const order = Number(raw)
+  return Number.isInteger(order) && order > 0 ? order : fallbackIndex
+}
+
+export function pickSectionByOrder(
+  sections: Array<{ id: number; sort_order?: number | null }>,
+  order: number,
+) {
+  const ordered = [...sections].sort((a, b) => {
+    const byOrder = (a.sort_order || 0) - (b.sort_order || 0)
+    if (byOrder !== 0) return byOrder
+    return a.id - b.id
+  })
+  return ordered[order - 1] || null
+}
+
 export function slugifyTitle(value: string) {
   const base = (value || '')
     .toLowerCase()

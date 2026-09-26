@@ -1,4 +1,4 @@
-import { serverSupabaseUser } from '#supabase/server'
+import { requireAdmin } from '~/server/utils/authHelper'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { logAuditAction } from '~/server/utils/auditLogger'
 
@@ -30,10 +30,7 @@ const knownTables = [
 ]
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  }
+  const { userId } = await requireAdmin(event)
 
   const query = getQuery(event)
   const format = (query.format as string) === 'sql' ? 'sql' : 'json'
@@ -62,7 +59,7 @@ export default defineEventHandler(async (event) => {
   // Audit log
   await logAuditAction({
     event,
-    userId: user.id,
+    userId: userId,
     action: 'DATABASE_EXPORT_FULL',
     entityType: 'database',
     entityId: 'full_backup',

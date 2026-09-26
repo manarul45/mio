@@ -463,16 +463,77 @@ ALTER TABLE public.affiliate_commissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.affiliate_withdrawals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.landing_pages ENABLE ROW LEVEL SECURITY;
 
--- Helper function to check if current user is ADMIN or SUPER_ADMIN
+-- Helper function to check if current user is ADMIN or SUPER_ADMIN.
+-- Email admin@ dan peran di token ikut dihitung, sama seperti menu admin di layar.
 CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    jwt_email TEXT := lower(COALESCE(auth.jwt() ->> 'email', ''));
+    jwt_role TEXT := upper(COALESCE(
+        auth.jwt() -> 'app_metadata' ->> 'role',
+        auth.jwt() -> 'user_metadata' ->> 'role',
+        ''
+    ));
 BEGIN
     RETURN EXISTS (
         SELECT 1 FROM public.profiles
         WHERE id = auth.uid() AND role IN ('ADMIN', 'SUPER_ADMIN')
-    );
+    )
+    OR jwt_role IN ('ADMIN', 'SUPER_ADMIN')
+    OR jwt_email = 'admin@mioacademy.com'
+    OR jwt_email LIKE 'admin@%';
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
+
+-- Baca kepemilikan kursus tanpa terhalang aturan baca tabel courses.
+CREATE OR REPLACE FUNCTION public.can_manage_section(target_section_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT public.is_admin() OR EXISTS (
+        SELECT 1
+        FROM public.course_sections s
+        JOIN public.courses c ON c.id = s.course_id
+        WHERE s.id = target_section_id
+          AND c.instructor_id = auth.uid()
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_manage_quiz(target_quiz_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.quizzes q
+        WHERE q.id = target_quiz_id
+          AND public.can_manage_section(q.section_id)
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_manage_question(target_question_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.quiz_questions qq
+        WHERE qq.id = target_question_id
+          AND public.can_manage_quiz(qq.quiz_id)
+    );
+$$;
 
 -- Profiles: Public can read basic profile, user can edit their own, admin can do all
 CREATE POLICY "Public profiles are readable" ON public.profiles FOR SELECT USING (true);
@@ -518,34 +579,25 @@ CREATE POLICY "Manage lessons" ON public.lessons FOR ALL USING (
 
 -- Quizzes & Questions & Options
 CREATE POLICY "Read quizzes" ON public.quizzes FOR SELECT USING (true);
-CREATE POLICY "Manage quizzes" ON public.quizzes FOR ALL USING (
-    public.is_admin() OR EXISTS (
-        SELECT 1 FROM public.course_sections s
-        JOIN public.courses c ON c.id = s.course_id
-        WHERE s.id = section_id AND c.instructor_id = auth.uid()
-    )
-);
+DROP POLICY IF EXISTS "Manage quizzes" ON public.quizzes;
+CREATE POLICY "Manage quizzes" ON public.quizzes
+    FOR ALL
+    USING (public.can_manage_section(section_id))
+    WITH CHECK (public.can_manage_section(section_id));
 
 CREATE POLICY "Read quiz questions" ON public.quiz_questions FOR SELECT USING (true);
-CREATE POLICY "Manage quiz questions" ON public.quiz_questions FOR ALL USING (
-    public.is_admin() OR EXISTS (
-        SELECT 1 FROM public.quizzes q
-        JOIN public.course_sections s ON s.id = q.section_id
-        JOIN public.courses c ON c.id = s.course_id
-        WHERE q.id = quiz_id AND c.instructor_id = auth.uid()
-    )
-);
+DROP POLICY IF EXISTS "Manage quiz questions" ON public.quiz_questions;
+CREATE POLICY "Manage quiz questions" ON public.quiz_questions
+    FOR ALL
+    USING (public.can_manage_quiz(quiz_id))
+    WITH CHECK (public.can_manage_quiz(quiz_id));
 
 CREATE POLICY "Read quiz options" ON public.quiz_options FOR SELECT USING (true);
-CREATE POLICY "Manage quiz options" ON public.quiz_options FOR ALL USING (
-    public.is_admin() OR EXISTS (
-        SELECT 1 FROM public.quiz_questions qq
-        JOIN public.quizzes q ON q.id = qq.quiz_id
-        JOIN public.course_sections s ON s.id = q.section_id
-        JOIN public.courses c ON c.id = s.course_id
-        WHERE qq.id = question_id AND c.instructor_id = auth.uid()
-    )
-);
+DROP POLICY IF EXISTS "Manage quiz options" ON public.quiz_options;
+CREATE POLICY "Manage quiz options" ON public.quiz_options
+    FOR ALL
+    USING (public.can_manage_question(question_id))
+    WITH CHECK (public.can_manage_question(question_id));
 
 -- Vouchers & Landing Pages
 CREATE POLICY "Public read active vouchers" ON public.vouchers FOR SELECT USING (is_active = true OR public.is_admin());

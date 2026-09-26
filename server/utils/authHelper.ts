@@ -49,42 +49,108 @@ function isAdminEmail(email: string | null | undefined) {
   return normalized === 'admin@mioacademy.com' || normalized.startsWith('admin@')
 }
 
-export async function requireAdmin(event: H3Event, fallbackId?: string | null): Promise<{ userId: string }> {
-  let sessionUser: any = null
-  try {
-    sessionUser = await serverSupabaseUser(event)
-  } catch {
-    sessionUser = null
+async function resolveAuthUser(event: H3Event, client: ReturnType<typeof getAdminSupabaseClient>) {
+  const authHeader = getHeader(event, 'Authorization') || getHeader(event, 'authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.substring(7).trim()
+    if (token) {
+      try {
+        const { data } = await client.auth.getUser(token)
+        if (data?.user) return data.user
+      } catch {
+        // Lanjut ke cookie sesi
+      }
+    }
   }
 
-  const userId = await getAuthenticatedUserId(event, fallbackId)
+  try {
+    return await serverSupabaseUser(event)
+  } catch {
+    return null
+  }
+}
+
+function callerIsAdmin(authUser: any, profile: { role?: string | null; email?: string | null } | null) {
+  const role = String(profile?.role || '').toUpperCase()
+  const metaRole = String(authUser?.user_metadata?.role || authUser?.app_metadata?.role || '').toUpperCase()
+  const autoAdmin = isAdminEmail(profile?.email) || isAdminEmail(authUser?.email)
+  return role === 'ADMIN' || role === 'SUPER_ADMIN' || metaRole === 'ADMIN' || metaRole === 'SUPER_ADMIN' || autoAdmin
+}
+
+async function syncAdminRole(
+  client: ReturnType<typeof getAdminSupabaseClient>,
+  userId: string,
+  profile: { role?: string | null } | null,
+) {
+  const role = String(profile?.role || '').toUpperCase()
+  if (profile && role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
+    await client.from('profiles').update({ role: 'ADMIN' }).eq('id', userId)
+  }
+}
+
+/**
+ * Pastikan pemanggil adalah admin.
+ * ID diambil dari cookie (id atau sub) atau token, sama seperti menu instruktur.
+ * Email admin@ juga diakui, supaya sama dengan tampilan sidebar.
+ */
+export async function requireAdmin(event: H3Event, fallbackId?: string | null): Promise<{ userId: string }> {
+  const client = getAdminSupabaseClient(event)
+  const authUser = await resolveAuthUser(event, client)
+  const userId = authUser?.id || authUser?.sub || await getAuthenticatedUserId(event, fallbackId)
   if (!userId) {
     throw createError({ statusCode: 401, statusMessage: 'Silakan masuk.' })
   }
 
-  const client = getAdminSupabaseClient(event)
   const { data: profile } = await client
     .from('profiles')
     .select('role, email')
     .eq('id', userId)
     .maybeSingle()
 
-  const role = String(profile?.role || '').toUpperCase()
-  const sessionId = sessionUser?.id || sessionUser?.sub
-  const sameSession = !sessionId || sessionId === userId
-  const metaRole = sameSession
-    ? String(sessionUser?.user_metadata?.role || sessionUser?.app_metadata?.role || '').toUpperCase()
-    : ''
-  const autoAdmin = isAdminEmail(profile?.email) || (sameSession && isAdminEmail(sessionUser?.email))
-  const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN' || metaRole === 'ADMIN' || metaRole === 'SUPER_ADMIN' || autoAdmin
-
-  if (!isAdmin) {
+  if (!callerIsAdmin(authUser, profile)) {
     throw createError({ statusCode: 403, statusMessage: 'Akses khusus administrator.' })
   }
 
-  if (profile && role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
-    await client.from('profiles').update({ role: 'ADMIN' }).eq('id', userId)
+  await syncAdminRole(client, userId, profile)
+  return { userId }
+}
+
+/**
+ * Admin (sama seperti menu) atau pemilik kursus boleh mengubah isi kursus.
+ * Penulisan memakai kunci server, jadi aturan tabel quizzes tidak menolak admin.
+ */
+export async function assertCanManageCourse(event: H3Event, courseId: string, fallbackId?: string | null) {
+  const client = getAdminSupabaseClient(event)
+  const authUser = await resolveAuthUser(event, client)
+  const userId = authUser?.id || authUser?.sub || await getAuthenticatedUserId(event, fallbackId)
+  if (!userId) {
+    throw createError({ statusCode: 401, statusMessage: 'Silakan masuk.' })
   }
 
-  return { userId }
+  const { data: course } = await client
+    .from('courses')
+    .select('id, instructor_id')
+    .eq('id', courseId)
+    .maybeSingle()
+
+  if (!course) {
+    throw createError({ statusCode: 404, statusMessage: 'Kursus tidak ditemukan' })
+  }
+
+  const { data: profile } = await client
+    .from('profiles')
+    .select('role, email')
+    .eq('id', userId)
+    .maybeSingle()
+
+  const isAdmin = callerIsAdmin(authUser, profile)
+  if (!isAdmin && course.instructor_id !== userId) {
+    throw createError({ statusCode: 403, statusMessage: 'Anda tidak memiliki hak akses untuk mengedit kursus ini' })
+  }
+
+  if (isAdmin) {
+    await syncAdminRole(client, userId, profile)
+  }
+
+  return { client, userId }
 }

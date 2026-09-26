@@ -644,78 +644,38 @@ const setOptionCorrect = (qIdx: number, oIdx: number) => {
     });
 };
 
+const courseWriteContext = async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const sessionUser = sessionData?.session?.user;
+    const currentUserId = user.value?.id || (user.value as any)?.sub || sessionUser?.id;
+    const token = sessionData?.session?.access_token;
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return { headers, currentUserId };
+};
+
 const saveQuiz = async () => {
     if (!quizForm.value.title.trim() || !activeSectionIdForQuiz.value) return;
     try {
-        let quizId = quizForm.value.id;
-
-        if (quizId) {
-            // Update existing quiz
-            const { error: uErr } = await supabase
-                .from('quizzes')
-                .update({
-                    title: quizForm.value.title,
-                    passing_score: quizForm.value.passing_score,
-                })
-                .eq('id', quizId);
-
-            if (uErr) throw uErr;
-
-            // Delete old questions to re-insert cleanly
-            await supabase.from('quiz_questions').delete().eq('quiz_id', quizId);
-        } else {
-            // Insert new quiz
-            const currentSection = course.value.sections.find((s: any) => s.id === activeSectionIdForQuiz.value);
-            const nextOrder = (currentSection?.quizzes?.length || 0) + 1;
-
-            const { data: qData, error: qErr } = await supabase
-                .from('quizzes')
-                .insert({
-                    section_id: activeSectionIdForQuiz.value,
-                    title: quizForm.value.title,
-                    passing_score: quizForm.value.passing_score,
-                    sort_order: nextOrder,
-                })
-                .select()
-                .single();
-
-            if (qErr) throw qErr;
-            quizId = qData.id;
-        }
-
-        // Insert Questions & Options
-        for (let i = 0; i < quizForm.value.questions.length; i++) {
-            const q = quizForm.value.questions[i];
-            if (!q.question.trim()) continue;
-
-            const { data: questData, error: questErr } = await supabase
-                .from('quiz_questions')
-                .insert({
-                    quiz_id: quizId,
-                    question_text: q.question,
-                    explanation: q.explanation || null,
-                    sort_order: i + 1,
-                })
-                .select()
-                .single();
-
-            if (questErr) throw questErr;
-
-            const optionsPayload = q.options.map((opt: any, optIdx: number) => ({
-                question_id: questData.id,
-                option_text: opt.option_text,
-                is_correct: opt.is_correct,
-                sort_order: optIdx + 1,
-            }));
-
-            await supabase.from('quiz_options').insert(optionsPayload);
-        }
+        const { headers, currentUserId } = await courseWriteContext();
+        await $fetch(`/api/instructor/courses/${courseId}/quizzes`, {
+            method: 'POST',
+            headers,
+            body: {
+                instructor_id: currentUserId,
+                section_id: activeSectionIdForQuiz.value,
+                id: quizForm.value.id,
+                title: quizForm.value.title,
+                passing_score: Number(quizForm.value.passing_score) || 80,
+                questions: quizForm.value.questions,
+            },
+        });
 
         isQuizModalOpen.value = false;
         swal.toastSuccess(quizForm.value.id ? 'Kuis berhasil diperbarui!' : 'Kuis berhasil ditambahkan!');
         loadCourseDetails();
     } catch (err: any) {
-        swal.toastError(err.message || 'Gagal menyimpan kuis');
+        swal.toastError(err.data?.statusMessage || err.statusMessage || err.message || 'Gagal menyimpan kuis');
     }
 };
 
@@ -727,100 +687,22 @@ const handleBulkJsonImport = async () => {
         const parsed = JSON.parse(bulkJsonContent.value);
         if (!Array.isArray(parsed)) throw new Error('Format JSON harus berupa array sections!');
 
-        for (let sIdx = 0; sIdx < parsed.length; sIdx++) {
-            const sec = parsed[sIdx];
-            const sectionTitle = sec.title || `Modul ${sIdx + 1}`;
-            const { data: newSec, error: sErr } = await supabase
-                .from('course_sections')
-                .insert({
-                    course_id: courseId,
-                    title: sectionTitle,
-                    description: sec.description || '',
-                    sort_order: sec.section_order || sec.sort_order || sIdx + 1,
-                })
-                .select()
-                .single();
-
-            if (sErr) throw sErr;
-
-            if (Array.isArray(sec.lessons)) {
-                for (let lIdx = 0; lIdx < sec.lessons.length; lIdx++) {
-                    const les = sec.lessons[lIdx];
-                    const lessonTitle = les.title || `Pelajaran ${lIdx + 1}`;
-                    const payload = lessonPayload(
-                        lessonTitle,
-                        les.youtube_url || les.youtube_video_id || '',
-                        les.duration_minutes || 10,
-                        les.is_preview,
-                        les.description || '',
-                    );
-                    const { error: lessonErr } = await supabase
-                        .from('lessons')
-                        .insert({
-                            ...payload,
-                            section_id: newSec.id,
-                            slug: slugify(lessonTitle),
-                            sort_order: lIdx + 1,
-                        });
-                    if (lessonErr) throw lessonErr;
-                }
-            }
-
-            if (Array.isArray(sec.quizzes)) {
-                for (let qIdx = 0; qIdx < sec.quizzes.length; qIdx++) {
-                    const qz = sec.quizzes[qIdx];
-                    const quizTitle = qz.title || 'Kuis Evaluasi';
-                    const { data: newQz, error: quizErr } = await supabase
-                        .from('quizzes')
-                        .insert({
-                            section_id: newSec.id,
-                            title: quizTitle,
-                            slug: slugify(quizTitle),
-                            passing_score: qz.passing_score || 80,
-                            sort_order: qIdx + 1,
-                        })
-                        .select()
-                        .single();
-
-                    if (quizErr) throw quizErr;
-
-                    if (newQz && Array.isArray(qz.questions)) {
-                        for (let qnIdx = 0; qnIdx < qz.questions.length; qnIdx++) {
-                            const qn = qz.questions[qnIdx];
-                            const { data: newQn, error: questionErr } = await supabase
-                                .from('quiz_questions')
-                                .insert({
-                                    quiz_id: newQz.id,
-                                    question_text: qn.question || qn.question_text || '',
-                                    explanation: qn.explanation || '',
-                                    sort_order: qnIdx + 1,
-                                })
-                                .select()
-                                .single();
-                            if (questionErr) throw questionErr;
-
-                            if (newQn && Array.isArray(qn.options)) {
-                                const opts = qn.options.map((opt: any, optIdx: number) => ({
-                                    question_id: newQn.id,
-                                    option_text: typeof opt === 'string' ? opt : opt.option_text,
-                                    is_correct: typeof opt === 'object' ? !!opt.is_correct : optIdx === 0,
-                                    sort_order: optIdx + 1,
-                                }));
-                                const { error: optionErr } = await supabase.from('quiz_options').insert(opts);
-                                if (optionErr) throw optionErr;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        const { headers, currentUserId } = await courseWriteContext();
+        const result: any = await $fetch(`/api/instructor/courses/${courseId}/import-curriculum`, {
+            method: 'POST',
+            headers,
+            body: {
+                instructor_id: currentUserId,
+                sections: parsed,
+            },
+        });
 
         isBulkModalOpen.value = false;
         bulkJsonContent.value = '';
-        swal.toastSuccess('Kurikulum berhasil diimpor secara otomatis!');
+        swal.toastSuccess(`Kurikulum berhasil diimpor: ${result?.sections || 0} modul, ${result?.quizzes || 0} kuis.`);
         loadCourseDetails();
     } catch (err: any) {
-        swal.toastError(`JSON Error: ${err.message}`);
+        swal.toastError(err.data?.statusMessage || err.statusMessage || err.message || 'Gagal mengimpor JSON');
     } finally {
         isImportingBulk.value = false;
     }

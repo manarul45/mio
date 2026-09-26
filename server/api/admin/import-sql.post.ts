@@ -1,16 +1,20 @@
 import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { getAuthenticatedUserId } from '~/server/utils/authHelper'
 import { createClient } from '@supabase/supabase-js'
 import { parseMySqlDump } from '~/server/utils/mysqlParser'
 
 export default defineEventHandler(async (event) => {
   // 1. Verifikasi User Login
-  const user = await serverSupabaseUser(event)
-  if (!user) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: 'Sesi login tidak sah atau telah berakhir. Harap login terlebih dahulu sebagai Admin.'
-    })
-  }
+const sessionUser: any = await serverSupabaseUser(event).catch(() => null)
+const userId = sessionUser?.id || sessionUser?.sub || await getAuthenticatedUserId(event)
+if (!userId) {
+  throw createError({
+    statusCode: 401,
+    statusMessage: 'Sesi login tidak sah atau telah berakhir. Harap login terlebih dahulu sebagai Admin.'
+  })
+}
+const user = sessionUser || { id: userId, email: '', user_metadata: {}, app_metadata: {} }
+user.id = userId
 
   // 2. Dapatkan Supabase Client (Prioritaskan Service Role Key untuk Bypass RLS Administrasi Penuh)
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY

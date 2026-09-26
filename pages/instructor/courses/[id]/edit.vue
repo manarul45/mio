@@ -440,8 +440,8 @@ const editLesson = (lesson: any, sectionId: string) => {
         title: lesson.title,
         youtube_url: lesson.youtube_url || (lesson.youtube_video_id ? `https://youtube.com/watch?v=${lesson.youtube_video_id}` : ''),
         duration_minutes: lesson.duration_seconds
-    ? Math.max(1, Math.round(Number(lesson.duration_seconds) / 60))
-    : (lesson.duration_minutes || 10),
+            ? Math.max(1, Math.round(Number(lesson.duration_seconds) / 60))
+            : (lesson.duration_minutes || 10),
         is_preview: !!lesson.is_preview,
         description: lesson.description || '',
     };
@@ -1206,7 +1206,7 @@ onMounted(() => {
                                                 </Badge>
                                             </div>
                                             <p class="text-[11px] text-slate-400">
-                                                {{ item.duration_seconds ? Math.max(1, Math.round(Number(item.duration_seconds) / 60)) : (item.duration_minutes || 10) }} Menit • {{ item.youtube_video_id ? 'ID: ' + item.youtube_video_id : 'Link video disiapkan' }} Menit • {{ item.youtube_video_id ? 'ID: ' + item.youtube_video_id : 'Link video disiapkan' }}
+                                                {{ item.duration_seconds ? Math.max(1, Math.round(Number(item.duration_seconds) / 60)) : (item.duration_minutes || 10) }} Menit • {{ item.youtube_video_id ? 'ID: ' + item.youtube_video_id : 'Link video disiapkan' }}
                                             </p>
                                         </div>
                                     </div>

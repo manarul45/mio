@@ -28,7 +28,7 @@ useHead({
       v-else-if="data?.html"
       :srcdoc="data.html"
       class="fixed inset-0 w-screen h-screen border-none z-50 bg-slate-950"
-      sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-top-navigation-by-user-activation"
     ></iframe>
   </div>
 </template>

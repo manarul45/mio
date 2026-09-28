@@ -128,3 +128,29 @@ export function resolveShortcodes(content: string, course?: any, settings?: Reco
 
   return html
 }
+
+/** Landing page tampil di dalam iframe. Tautan kelas harus membuka halaman utama situs ini. */
+export function openLandingLinksInParent(html: string): string {
+  const rewritten = html.replace(
+    /(\bhref\s*=\s*)(['"])https?:\/\/(?:www\.)?academy\.manarulilmi\.com/gi,
+    '$1$2',
+  )
+
+  return rewritten.replace(/<a\b([^>]*?)>/gi, (match, attrs: string) => {
+    const hrefMatch = attrs.match(/\bhref\s*=\s*(['"])([\s\S]*?)\1/i)
+    if (!hrefMatch) return match
+
+    const href = hrefMatch[2].trim()
+    if (
+      !href
+      || href.startsWith('#')
+      || href.toLowerCase().startsWith('javascript:')
+      || href.toLowerCase().startsWith('mailto:')
+    ) {
+      return match
+    }
+
+    if (/\btarget\s*=/i.test(attrs)) return match
+    return `<a${attrs} target="_top">`
+  })
+}

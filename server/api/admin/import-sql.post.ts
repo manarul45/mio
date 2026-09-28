@@ -270,7 +270,9 @@ user.id = userId
             course_id: supabaseCourseId,
             title: row.title,
             description: row.description || null,
-            sort_order: Number(row.sort_order) || 0
+            sort_order: Number(row.sort_order) || 0,
+            kitab_url: row.kitab_url || null,
+            ebook_url: row.ebook_url || null
           }
         })
       }

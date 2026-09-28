@@ -16,6 +16,7 @@ import {
   Play,
   Award,
   BookOpen,
+  Download,
   Users,
   ListChecks,
   Star,
@@ -351,6 +352,26 @@ useHead({
 
                 <!-- Unified Items in Section -->
                 <div class="divide-y divide-slate-100 dark:divide-slate-800">
+                  <a
+                    v-if="section.kitab_url"
+                    :href="section.kitab_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="px-6 py-3.5 flex items-center gap-3 hover:bg-slate-50/50 transition dark:hover:bg-slate-800/30"
+                  >
+                    <Download class="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span class="text-sm font-medium text-slate-800 dark:text-slate-200">Download Kitab</span>
+                  </a>
+                  <a
+                    v-if="section.ebook_url"
+                    :href="section.ebook_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="px-6 py-3.5 flex items-center gap-3 hover:bg-slate-50/50 transition dark:hover:bg-slate-800/30"
+                  >
+                    <BookOpen class="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span class="text-sm font-medium text-slate-800 dark:text-slate-200">Ebook dan Diktat Materi</span>
+                  </a>
                   <template v-for="item in getSortedSectionItems(section)" :key="item.item_type + '-' + item.id">
                     <!-- Lesson Row -->
                     <div

@@ -22,6 +22,8 @@ import {
     MessageSquare,
     Send,
     Check,
+    Download,
+    BookOpen,
     HelpCircle,
     Image as ImageIcon,
     Music,
@@ -762,6 +764,26 @@ onMounted(() => {
                                 {{ section.title }}
                             </div>
 
+                            <a
+                                v-if="section.kitab_url"
+                                :href="section.kitab_url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="w-full text-left p-2.5 rounded-xl transition flex items-center gap-2.5 text-xs hover:bg-slate-800 text-emerald-300"
+                            >
+                                <Download class="h-4 w-4 shrink-0" />
+                                <span class="truncate">Download Kitab</span>
+                            </a>
+                            <a
+                                v-if="section.ebook_url"
+                                :href="section.ebook_url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="w-full text-left p-2.5 rounded-xl transition flex items-center gap-2.5 text-xs hover:bg-slate-800 text-emerald-300"
+                            >
+                                <BookOpen class="h-4 w-4 shrink-0" />
+                                <span class="truncate">Ebook dan Diktat Materi</span>
+                            </a>
                             <template v-for="item in getSortedSectionItems(section)" :key="item.item_type + '-' + item.id">
                                 <!-- Lesson Item -->
                                 <button

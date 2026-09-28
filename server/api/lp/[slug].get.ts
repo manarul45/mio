@@ -1,5 +1,5 @@
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
-import { resolveShortcodes } from '~/server/utils/landingPageService'
+import { openLandingLinksInParent, resolveShortcodes } from '~/server/utils/landingPageService'
 
 export default defineEventHandler(async (event) => {
   const client = getAdminSupabaseClient(event)
@@ -49,7 +49,9 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const html = resolveShortcodes(landingPage.content || '', course, settingsMap)
+  const html = openLandingLinksInParent(
+    resolveShortcodes(landingPage.content || '', course, settingsMap),
+  )
 
   if (query.raw === 'true' || query.raw === '1') {
     setHeader(event, 'content-type', 'text/html; charset=utf-8')

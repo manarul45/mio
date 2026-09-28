@@ -73,6 +73,8 @@ export interface CourseSection {
   course_id: number
   title: string
   description?: string | null
+  kitab_url?: string | null
+  ebook_url?: string | null
   sort_order: number
   lessons?: Lesson[]
   quizzes?: Quiz[]

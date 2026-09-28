@@ -19,6 +19,8 @@ export default defineEventHandler(async (event) => {
         title,
         description,
         sort_order,
+        kitab_url,
+        ebook_url,
         lessons(
           id,
           title,

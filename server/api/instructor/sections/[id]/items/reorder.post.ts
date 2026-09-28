@@ -1,25 +1,30 @@
-import { serverSupabaseUser } from '#supabase/server'
+import { assertCanManageCourse } from '~/server/utils/authHelper'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
-  if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Harap login terlebih dahulu' })
-  }
-
   const sectionId = getRouterParam(event, 'id')
   if (!sectionId) {
     throw createError({ statusCode: 400, statusMessage: 'ID modul/section diperlukan' })
   }
 
   const body = await readBody(event)
+  const lookup = getAdminSupabaseClient(event)
+  const { data: section, error: sectionError } = await lookup
+    .from('course_sections')
+    .select('course_id')
+    .eq('id', sectionId)
+    .maybeSingle()
+
+  if (sectionError || !section) {
+    throw createError({ statusCode: 404, statusMessage: 'Modul tidak ditemukan' })
+  }
+
+  const { client } = await assertCanManageCourse(event, String(section.course_id), body?.instructor_id)
   const items: Array<{ id: number, type: 'lesson' | 'quiz' }> = body?.items || []
 
   if (!Array.isArray(items) || items.length === 0) {
     throw createError({ statusCode: 400, statusMessage: 'Data items tidak valid' })
   }
-
-  const client = getAdminSupabaseClient(event)
 
   const updatePromises = items.map((item, index) => {
     const newSortOrder = index + 1

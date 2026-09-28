@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
       category:categories(id, name, slug),
       instructor:profiles!courses_instructor_id_fkey(id, name, avatar_url),
       sections:course_sections(
-        id, title, description, sort_order,
+        id, title, description, sort_order, kitab_url, ebook_url,
         lessons:lessons(id, title, slug, youtube_video_id, duration_seconds, is_preview, is_active, sort_order, description),
         quizzes:quizzes(id, title, slug, passing_score, time_limit_minutes, sort_order)
       ),

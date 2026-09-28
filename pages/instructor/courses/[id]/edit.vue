@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import Button from '~/components/UI/Button.vue';
 import Input from '~/components/UI/Input.vue';
@@ -71,7 +71,7 @@ const isUploadingThumbnail = ref(false);
 
 // Section & Lesson Modals
 const isSectionModalOpen = ref(false);
-const sectionForm = ref({ id: null as string | null, title: '', description: '' });
+const sectionForm = ref({ id: null as string | null, title: '', description: '', kitab_url: '', ebook_url: '' });
 
 const isLessonModalOpen = ref(false);
 const activeSectionIdForLesson = ref<string | null>(null);
@@ -108,8 +108,11 @@ const isBulkModalOpen = ref(false);
 const bulkJsonContent = ref('');
 const isImportingBulk = ref(false);
 
-const loadCourseDetails = async () => {
-    loading.value = true;
+const savingSection = ref(false);
+
+const loadCourseDetails = async (silent = false) => {
+    const scrollY = silent ? window.scrollY : 0;
+    if (!silent) loading.value = true;
     try {
         const { data: catData } = await supabase.from('categories').select('*').order('name');
         categories.value = catData || [];
@@ -142,44 +145,55 @@ const loadCourseDetails = async () => {
         swal.toastError(err.message || 'Gagal memuat kursus');
     } finally {
         loading.value = false;
+        if (silent) {
+            await nextTick();
+            window.scrollTo({ top: scrollY });
+        }
     }
 };
 
 // Section Handlers
 const openAddSection = () => {
-    sectionForm.value = { id: null, title: '', description: '' };
+    sectionForm.value = { id: null, title: '', description: '', kitab_url: '', ebook_url: '' };
     isSectionModalOpen.value = true;
 };
 
 const openEditSection = (section: any) => {
-    sectionForm.value = { id: section.id, title: section.title, description: section.description || '' };
+    sectionForm.value = {
+        id: section.id,
+        title: section.title,
+        description: section.description || '',
+        kitab_url: section.kitab_url || '',
+        ebook_url: section.ebook_url || '',
+    };
     isSectionModalOpen.value = true;
 };
 
 const saveSection = async () => {
-    if (!sectionForm.value.title.trim()) return;
+    if (!sectionForm.value.title.trim() || savingSection.value) return;
+    savingSection.value = true;
     try {
-        if (sectionForm.value.id) {
-            await supabase
-                .from('course_sections')
-                .update({ title: sectionForm.value.title, description: sectionForm.value.description })
-                .eq('id', sectionForm.value.id);
-        } else {
-            const nextOrder = (course.value.sections?.length || 0) + 1;
-            await supabase
-                .from('course_sections')
-                .insert({
-                    course_id: courseId,
-                    title: sectionForm.value.title,
-                    description: sectionForm.value.description,
-                    sort_order: nextOrder,
-                });
-        }
+        const payload = {
+            title: sectionForm.value.title,
+            description: sectionForm.value.description,
+            kitab_url: sectionForm.value.kitab_url.trim() || null,
+            ebook_url: sectionForm.value.ebook_url.trim() || null,
+        };
+        const { error } = sectionForm.value.id
+            ? await supabase.from('course_sections').update(payload).eq('id', sectionForm.value.id)
+            : await supabase.from('course_sections').insert({
+                ...payload,
+                course_id: courseId,
+                sort_order: (course.value.sections?.length || 0) + 1,
+            });
+        if (error) throw error;
         isSectionModalOpen.value = false;
         swal.toastSuccess('Modul berhasil disimpan!');
-        loadCourseDetails();
+        await loadCourseDetails(true);
     } catch (err: any) {
         swal.toastError(err.message || 'Gagal menyimpan modul');
+    } finally {
+        savingSection.value = false;
     }
 };
 
@@ -194,7 +208,7 @@ const deleteSection = async (section: any) => {
     try {
         await supabase.from('course_sections').delete().eq('id', section.id);
         swal.toastSuccess('Modul berhasil dihapus');
-        loadCourseDetails();
+        loadCourseDetails(true);
     } catch (err: any) {
         swal.toastError(err.message);
     }
@@ -207,95 +221,65 @@ const getSectionItems = (section: any) => {
     return [...lessons, ...quizzes].sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
 };
 
-// Drag and drop state for items (lessons & quizzes)
-const draggedItem = ref<any>(null);
-const dragOverSectionId = ref<string | number | null>(null);
-const dragOverItemIndex = ref<number | null>(null);
-
-const onDragStartItem = (event: DragEvent, section: any, item: any, index: number) => {
-    draggedItem.value = { sectionId: section.id, item, index };
-    if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'move';
-        try {
-            event.dataTransfer.setData('text/plain', JSON.stringify({ sectionId: section.id, itemId: item.id, itemType: item.item_type, index }));
-        } catch {}
-    }
-};
-
-const onDragOverItem = (event: DragEvent, section: any, index: number) => {
-    if (!draggedItem.value) return;
-    if (draggedItem.value.sectionId !== section.id) return;
-    event.preventDefault();
-    if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move';
-    }
-    dragOverSectionId.value = section.id;
-    dragOverItemIndex.value = index;
-};
-
-const onDragLeaveItem = (section: any, index: number) => {
-    if (dragOverSectionId.value === section.id && dragOverItemIndex.value === index) {
-        dragOverItemIndex.value = null;
-    }
-};
-
-const onDropItem = async (event: DragEvent, section: any, targetIndex: number) => {
-    event.preventDefault();
-    if (!draggedItem.value) return;
-    if (draggedItem.value.sectionId !== section.id) {
-        draggedItem.value = null;
-        dragOverItemIndex.value = null;
-        dragOverSectionId.value = null;
-        return;
-    }
-
-    const sourceIndex = draggedItem.value.index;
-    draggedItem.value = null;
-    dragOverItemIndex.value = null;
-    dragOverSectionId.value = null;
-
-    if (sourceIndex === targetIndex) return;
-
-    const items = getSectionItems(section);
-    const originalLessons = section.lessons ? [...section.lessons] : [];
-    const originalQuizzes = section.quizzes ? [...section.quizzes] : [];
-
-    const [movedItem] = items.splice(sourceIndex, 1);
-    items.splice(targetIndex, 0, movedItem);
-
+const applyItemOrder = (section: any, items: any[]) => {
     items.forEach((item: any, idx: number) => {
         const newSort = idx + 1;
         if (item.item_type === 'lesson') {
-            const l = (section.lessons || []).find((les: any) => les.id === item.id);
-            if (l) l.sort_order = newSort;
+            const lesson = (section.lessons || []).find((row: any) => row.id === item.id);
+            if (lesson) lesson.sort_order = newSort;
         } else if (item.item_type === 'quiz') {
-            const q = (section.quizzes || []).find((qz: any) => qz.id === item.id);
-            if (q) q.sort_order = newSort;
+            const quiz = (section.quizzes || []).find((row: any) => row.id === item.id);
+            if (quiz) quiz.sort_order = newSort;
         }
     });
+};
 
-    const payloadItems = items.map((it: any) => ({
-        id: it.id,
-        type: it.item_type,
-    }));
+const saveItemOrder = async (section: any, items: any[]) => {
+    const { headers, currentUserId } = await courseWriteContext();
+    await $fetch(`/api/instructor/sections/${section.id}/items/reorder`, {
+        method: 'POST',
+        headers,
+        body: {
+            items: items.map((item: any) => ({ id: item.id, type: item.item_type })),
+            instructor_id: currentUserId,
+        },
+    });
+};
+
+const placeSectionItem = async (section: any, fromIndex: number, toIndex: number) => {
+    const items = getSectionItems(section);
+    if (toIndex < 0 || toIndex >= items.length || fromIndex === toIndex) return;
+
+    const originalLessons = section.lessons ? [...section.lessons] : [];
+    const originalQuizzes = section.quizzes ? [...section.quizzes] : [];
+    const [movedItem] = items.splice(fromIndex, 1);
+    items.splice(toIndex, 0, movedItem);
+    applyItemOrder(section, items);
 
     try {
-        await $fetch(`/api/instructor/sections/${section.id}/items/reorder`, {
-            method: 'POST',
-            body: { items: payloadItems },
-        });
+        await saveItemOrder(section, items);
         swal.toastSuccess('Urutan materi berhasil diperbarui');
     } catch (err: any) {
         section.lessons = originalLessons;
         section.quizzes = originalQuizzes;
-        swal.toastError('Gagal memperbarui urutan materi');
+        swal.toastError(err.data?.statusMessage || 'Gagal memperbarui urutan materi');
     }
 };
 
-const onDragEndItem = () => {
-    draggedItem.value = null;
-    dragOverItemIndex.value = null;
-    dragOverSectionId.value = null;
+const onItemOrderInput = async (event: Event, section: any, index: number) => {
+    const input = event.target as HTMLInputElement;
+    const total = getSectionItems(section).length;
+    const wanted = Number(input.value);
+    if (!Number.isFinite(wanted)) {
+        input.value = String(index + 1);
+        return;
+    }
+    const targetIndex = Math.min(total, Math.max(1, Math.round(wanted))) - 1;
+    if (targetIndex === index) {
+        input.value = String(index + 1);
+        return;
+    }
+    await placeSectionItem(section, index, targetIndex);
 };
 
 // Drag and drop state for sections (modules)
@@ -386,44 +370,10 @@ const moveSection = async (index: number, direction: 'up' | 'down') => {
 };
 
 const moveSectionItem = async (section: any, index: number, direction: 'up' | 'down') => {
-    const items = getSectionItems(section);
+    const total = getSectionItems(section).length;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= items.length) return;
-
-    const originalLessons = section.lessons ? [...section.lessons] : [];
-    const originalQuizzes = section.quizzes ? [...section.quizzes] : [];
-
-    const temp = items[index];
-    items[index] = items[targetIndex];
-    items[targetIndex] = temp;
-
-    items.forEach((item: any, idx: number) => {
-        const newSort = idx + 1;
-        if (item.item_type === 'lesson') {
-            const l = (section.lessons || []).find((les: any) => les.id === item.id);
-            if (l) l.sort_order = newSort;
-        } else if (item.item_type === 'quiz') {
-            const q = (section.quizzes || []).find((qz: any) => qz.id === item.id);
-            if (q) q.sort_order = newSort;
-        }
-    });
-
-    const payloadItems = items.map((it: any) => ({
-        id: it.id,
-        type: it.item_type,
-    }));
-
-    try {
-        await $fetch(`/api/instructor/sections/${section.id}/items/reorder`, {
-            method: 'POST',
-            body: { items: payloadItems },
-        });
-        swal.toastSuccess('Urutan materi berhasil diperbarui');
-    } catch (err: any) {
-        section.lessons = originalLessons;
-        section.quizzes = originalQuizzes;
-        swal.toastError('Gagal memperbarui urutan materi');
-    }
+    if (targetIndex < 0 || targetIndex >= total) return;
+    await placeSectionItem(section, index, targetIndex);
 };
 
 // Lesson Handlers
@@ -513,7 +463,7 @@ const saveLesson = async () => {
         }
         isLessonModalOpen.value = false;
         swal.toastSuccess('Pelajaran video berhasil disimpan!');
-        loadCourseDetails();
+        loadCourseDetails(true);
     } catch (err: any) {
         swal.toastError(err.message || 'Gagal menyimpan pelajaran');
     }
@@ -530,7 +480,7 @@ const deleteLesson = async (lesson: any) => {
     try {
         await supabase.from('lessons').delete().eq('id', lesson.id);
         swal.toastSuccess('Pelajaran berhasil dihapus');
-        loadCourseDetails();
+        loadCourseDetails(true);
     } catch (err: any) {
         swal.toastError(err.message);
     }
@@ -605,11 +555,16 @@ const deleteQuiz = async (quiz: any) => {
 
     if (confirmed) {
         try {
-            await supabase.from('quizzes').delete().eq('id', quiz.id);
+            const { headers, currentUserId } = await courseWriteContext();
+            await $fetch(`/api/instructor/courses/${courseId}/quizzes/${quiz.id}`, {
+                method: 'DELETE',
+                headers,
+                query: currentUserId ? { user_id: currentUserId } : undefined,
+            });
             swal.toastSuccess('Kuis berhasil dihapus!');
-            loadCourseDetails();
+            loadCourseDetails(true);
         } catch (err: any) {
-            swal.toastError(err.message || 'Gagal menghapus kuis');
+            swal.toastError(err.data?.statusMessage || err.message || 'Gagal menghapus kuis');
         }
     }
 };
@@ -673,7 +628,7 @@ const saveQuiz = async () => {
 
         isQuizModalOpen.value = false;
         swal.toastSuccess(quizForm.value.id ? 'Kuis berhasil diperbarui!' : 'Kuis berhasil ditambahkan!');
-        loadCourseDetails();
+        loadCourseDetails(true);
     } catch (err: any) {
         swal.toastError(err.data?.statusMessage || err.statusMessage || err.message || 'Gagal menyimpan kuis');
     }
@@ -700,7 +655,7 @@ const handleBulkJsonImport = async () => {
         isBulkModalOpen.value = false;
         bulkJsonContent.value = '';
         swal.toastSuccess(`Kurikulum berhasil diimpor: ${result?.sections || 0} modul, ${result?.quizzes || 0} kuis.`);
-        loadCourseDetails();
+        loadCourseDetails(true);
     } catch (err: any) {
         swal.toastError(err.data?.statusMessage || err.statusMessage || err.message || 'Gagal mengimpor JSON');
     } finally {
@@ -1054,26 +1009,18 @@ onMounted(() => {
                                 <!-- Video Lesson Item -->
                                 <div
                                     v-if="item.item_type === 'lesson'"
-                                    draggable="true"
-                                    @dragstart="onDragStartItem($event, section, item, itemIdx)"
-                                    @dragend="onDragEndItem"
-                                    @dragover="onDragOverItem($event, section, itemIdx)"
-                                    @dragleave="onDragLeaveItem(section, itemIdx)"
-                                    @drop="onDropItem($event, section, itemIdx)"
-                                    :class="[
-                                        'flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-100 dark:bg-slate-800/40 dark:border-slate-800 hover:border-slate-200 transition-all group',
-                                        dragOverSectionId === section.id && dragOverItemIndex === itemIdx && draggedItem?.index !== itemIdx ? 'ring-2 ring-indigo-500 ring-offset-2 scale-[1.01] bg-indigo-50/80 dark:bg-indigo-950/50 shadow-md' : '',
-                                        draggedItem?.item?.id === item.id && draggedItem?.item?.item_type === 'lesson' ? 'opacity-40 border-dashed border-indigo-400' : ''
-                                    ]"
+                                    class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-100 dark:bg-slate-800/40 dark:border-slate-800 hover:border-slate-200 transition-all group"
                                 >
                                     <div class="flex items-center gap-2.5 min-w-0">
-                                        <!-- Drag Handle -->
-                                        <div
-                                            class="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-600 dark:text-slate-600 dark:hover:text-slate-300 p-1 -ml-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition shrink-0"
-                                            title="Tahan dan geser (drag & drop) untuk memindahkan urutan video"
-                                        >
-                                            <GripVertical class="h-4 w-4" />
-                                        </div>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            :max="getSectionItems(section).length"
+                                            :value="itemIdx + 1"
+                                            class="w-12 shrink-0 rounded-lg border border-slate-200 bg-white px-1 py-1 text-center text-xs font-bold text-slate-700 focus:border-indigo-600 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                            title="Ketik nomor urutan, lalu tekan Enter"
+                                            @change="onItemOrderInput($event, section, itemIdx)"
+                                        />
 
                                         <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300 shrink-0">
                                             <Video class="h-4 w-4" />
@@ -1137,26 +1084,18 @@ onMounted(() => {
                                 <!-- Quiz Item -->
                                 <div
                                     v-else-if="item.item_type === 'quiz'"
-                                    draggable="true"
-                                    @dragstart="onDragStartItem($event, section, item, itemIdx)"
-                                    @dragend="onDragEndItem"
-                                    @dragover="onDragOverItem($event, section, itemIdx)"
-                                    @dragleave="onDragLeaveItem(section, itemIdx)"
-                                    @drop="onDropItem($event, section, itemIdx)"
-                                    :class="[
-                                        'flex items-center justify-between p-3.5 rounded-2xl bg-purple-50/50 border border-purple-100 dark:bg-purple-950/20 dark:border-purple-900/40 transition-all group',
-                                        dragOverSectionId === section.id && dragOverItemIndex === itemIdx && draggedItem?.index !== itemIdx ? 'ring-2 ring-purple-500 ring-offset-2 scale-[1.01] bg-purple-100/70 dark:bg-purple-950/70 shadow-md' : '',
-                                        draggedItem?.item?.id === item.id && draggedItem?.item?.item_type === 'quiz' ? 'opacity-40 border-dashed border-purple-400' : ''
-                                    ]"
+                                    class="flex items-center justify-between p-3.5 rounded-2xl bg-purple-50/50 border border-purple-100 dark:bg-purple-950/20 dark:border-purple-900/40 transition-all group"
                                 >
                                     <div class="flex items-center gap-2.5 min-w-0">
-                                        <!-- Drag Handle -->
-                                        <div
-                                            class="cursor-grab active:cursor-grabbing text-slate-300 hover:text-purple-600 dark:text-slate-600 dark:hover:text-purple-300 p-1 -ml-1 rounded hover:bg-purple-200/60 dark:hover:bg-purple-900/60 transition shrink-0"
-                                            title="Tahan dan geser (drag & drop) untuk memindahkan urutan kuis"
-                                        >
-                                            <GripVertical class="h-4 w-4" />
-                                        </div>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            :max="getSectionItems(section).length"
+                                            :value="itemIdx + 1"
+                                            class="w-12 shrink-0 rounded-lg border border-purple-200 bg-white px-1 py-1 text-center text-xs font-bold text-purple-800 focus:border-purple-600 focus:outline-none dark:border-purple-800 dark:bg-slate-900 dark:text-purple-100"
+                                            title="Ketik nomor urutan, lalu tekan Enter"
+                                            @change="onItemOrderInput($event, section, itemIdx)"
+                                        />
 
                                         <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400 shrink-0">
                                             <FileQuestion class="h-4 w-4" />
@@ -1406,10 +1345,20 @@ onMounted(() => {
                     placeholder="Gambaran umum topik yang dibahas di modul ini..."
                     rows="3"
                 />
+                <Input
+                    v-model="sectionForm.kitab_url"
+                    label="Download Kitab"
+                    placeholder="https://tautan-unduh-kitab-modul-ini"
+                />
+                <Input
+                    v-model="sectionForm.ebook_url"
+                    label="Ebook dan Diktat Materi"
+                    placeholder="https://lynk.id/tautan-ebook-modul-ini"
+                />
             </div>
             <template #footer>
                 <Button variant="secondary" size="sm" @click="isSectionModalOpen = false">Batal</Button>
-                <Button variant="primary" size="sm" @click="saveSection">Simpan Modul</Button>
+                <Button variant="primary" size="sm" :loading="savingSection" :disabled="savingSection" @click="saveSection">Simpan Modul</Button>
             </template>
         </Modal>
 

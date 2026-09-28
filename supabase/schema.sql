@@ -171,10 +171,14 @@ CREATE TABLE IF NOT EXISTS public.course_sections (
     title VARCHAR(255) NOT NULL,
     description TEXT,
     sort_order INT DEFAULT 0,
+    kitab_url TEXT,
+    ebook_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_sections_course_sort ON public.course_sections(course_id, sort_order);
+ALTER TABLE public.course_sections ADD COLUMN IF NOT EXISTS kitab_url TEXT;
+ALTER TABLE public.course_sections ADD COLUMN IF NOT EXISTS ebook_url TEXT;
 
 -- 3.7 LESSONS
 CREATE TABLE IF NOT EXISTS public.lessons (
@@ -617,6 +621,10 @@ CREATE POLICY "Admin manage enrollments" ON public.enrollments FOR ALL USING (pu
 -- Lesson Progress & Quiz Attempts
 CREATE POLICY "Users manage own progress" ON public.lesson_progress FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users manage own quiz attempts" ON public.quiz_attempts FOR ALL USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Staff delete quiz attempts" ON public.quiz_attempts;
+CREATE POLICY "Staff delete quiz attempts" ON public.quiz_attempts
+    FOR DELETE
+    USING (public.can_manage_quiz(quiz_id));
 
 -- Certificates: Public can verify, user can read own
 CREATE POLICY "Public verify certificates" ON public.certificates FOR SELECT USING (true);

@@ -71,7 +71,7 @@ const isSubmitting = ref(false)
 
 const effectivePrice = computed(() => {
   if (!course.value) return 0
-  return course.value.discount_price && Number(course.discount_price) < Number(course.price)
+  return course.value.discount_price && Number(course.value.discount_price) < Number(course.value.price)
     ? Number(course.value.discount_price)
     : Number(course.value.price)
 })
@@ -379,8 +379,8 @@ useHead({
           </div>
 
           <!-- Right Col: Price Breakdown & Submit -->
-          <div class="space-y-6">
-            <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4">
+          <div class="space-y-6 min-w-0">
+            <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4 min-w-0">
               <h2 class="text-base font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-100 dark:border-slate-800">
                 Rincian Pembayaran
               </h2>
@@ -434,13 +434,13 @@ useHead({
                   </div>
 
                   <!-- Voucher Code Form Input -->
-                  <div v-else class="flex gap-2">
+                  <div v-else class="flex min-w-0 gap-2">
                     <input
                       v-model="voucherInput"
                       @keyup.enter.prevent="applyVoucherCode"
                       type="text"
                       placeholder="Contoh: DISKON50"
-                      class="flex-1 uppercase font-mono text-xs rounded-xl border border-slate-200 px-3 py-2 bg-slate-50 focus:bg-white focus:border-indigo-600 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      class="w-0 min-w-0 flex-1 uppercase font-mono text-xs rounded-xl border border-slate-200 px-3 py-2 bg-slate-50 focus:bg-white focus:border-indigo-600 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     />
                     <Button
                       type="button"

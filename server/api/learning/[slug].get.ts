@@ -127,8 +127,16 @@ export default defineEventHandler(async (event) => {
   // Urutan belajar: isi materi yang masih terkunci tidak dikirim ke browser.
   let completedLessonIds = new Set<number>()
   let passedQuizIds = new Set<number>()
+  let certificateCode: string | null = null
   if (isEnrolled) {
     ;({ completedLessonIds, passedQuizIds } = await getUserProgressIds(client, userId))
+    const { data: cert } = await client
+      .from('certificates')
+      .select('certificate_code')
+      .eq('user_id', userId)
+      .eq('course_id', data.id)
+      .maybeSingle()
+    certificateCode = cert?.certificate_code || null
   }
 
   if (!isStaff) {
@@ -159,8 +167,12 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  ;(data as any).viewer.completed_lesson_ids = [...completedLessonIds]
-  ;(data as any).viewer.passed_quiz_ids = [...passedQuizIds]
+  const sections = (data.sections || []) as any[]
+  const courseLessonIds = new Set(sections.flatMap((sec) => sec.lessons.map((l: any) => l.id)))
+  const courseQuizIds = new Set(sections.flatMap((sec) => sec.quizzes.map((q: any) => q.id)))
+  ;(data as any).viewer.completed_lesson_ids = [...completedLessonIds].filter((id) => courseLessonIds.has(id))
+  ;(data as any).viewer.passed_quiz_ids = [...passedQuizIds].filter((id) => courseQuizIds.has(id))
+  ;(data as any).viewer.certificate_code = certificateCode
 
   return data
 })

@@ -48,6 +48,9 @@ const completedLessonIds = ref<number[]>([]);
 const passedQuizIds = ref<number[]>([]);
 const isSidebarOpen = ref(true);
 const isCertModalOpen = ref(false);
+const claimingCertificate = ref(false);
+const certificateCode = ref<string | null>(null);
+const certificateError = ref('');
 const activeLessonTab = ref('overview'); // 'overview' | 'qa'
 
 // Discussions Q&A state
@@ -258,11 +261,39 @@ const authHeaders = async (): Promise<Record<string, string>> => {
     return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+const showCertificateIfIssued = (res: any) => {
+    if (!res?.is_course_complete || !res.certificate_code) return;
+    const isNew = !certificateCode.value;
+    certificateCode.value = res.certificate_code;
+    if (isNew) isCertModalOpen.value = true;
+};
+
+const claimCertificate = async () => {
+    isCertModalOpen.value = true;
+    if (certificateCode.value) return;
+
+    claimingCertificate.value = true;
+    certificateError.value = '';
+    try {
+        const res: any = await $fetch('/api/learning/claim-certificate', {
+            method: 'POST',
+            headers: await authHeaders(),
+            body: { course_id: course.value.id },
+        });
+        certificateCode.value = res.certificate_code;
+    } catch (err: any) {
+        certificateError.value = err.data?.statusMessage || err.message || 'Gagal mengambil sertifikat.';
+    } finally {
+        claimingCertificate.value = false;
+    }
+};
+
 const fetchCourse = async () => {
     const data = await $fetch<any>(`/api/learning/${slug}`, { headers: await authHeaders() });
     course.value = data;
     completedLessonIds.value = data.viewer?.completed_lesson_ids || [];
     passedQuizIds.value = data.viewer?.passed_quiz_ids || [];
+    if (data.viewer?.certificate_code) certificateCode.value = data.viewer.certificate_code;
     return data;
 };
 
@@ -324,6 +355,7 @@ const markLessonComplete = async () => {
         }
 
         toast.success(res.message || 'Pelajaran berhasil diselesaikan!');
+        showCertificateIfIssued(res);
         await refreshCourse();
         advanceToNextItem();
     } catch (err: any) {
@@ -358,6 +390,7 @@ const submitQuiz = async () => {
                 passedQuizIds.value.push(activeQuiz.value.id);
             }
             toast.success(`Selamat! Anda lulus kuis dengan nilai ${res.score}%!`);
+            showCertificateIfIssued(res);
             await refreshCourse();
         } else {
             toast.warning(`Nilai Anda ${res.score}%. Batas kelulusan adalah ${res.passing_score}%. Silakan ulangi lagi.`);
@@ -405,7 +438,7 @@ onMounted(() => {
                     <button
                         v-if="progressPercentage === 100"
                         type="button"
-                        @click="isCertModalOpen = true"
+                        @click="claimCertificate"
                         class="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 text-xs font-bold text-amber-300 hover:bg-amber-500/30 transition animate-pulse"
                     >
                         <Award class="h-4 w-4 text-amber-400" />
@@ -924,5 +957,41 @@ onMounted(() => {
                 </div>
             </div>
         </div>
+
+        <Modal :show="isCertModalOpen" title="Sertifikat Kelulusan" @close="isCertModalOpen = false">
+            <div class="text-center space-y-4 py-2">
+                <div v-if="claimingCertificate" class="py-6">
+                    <LoadingState text="Menyiapkan sertifikat Anda..." />
+                </div>
+                <template v-else-if="certificateCode">
+                    <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 dark:bg-amber-950">
+                        <Award class="h-7 w-7" />
+                    </div>
+                    <div class="space-y-1">
+                        <h3 class="text-base font-bold text-slate-900 dark:text-white">Selamat, Anda lulus!</h3>
+                        <p class="text-xs text-slate-500">
+                            Anda telah menyelesaikan seluruh materi dan latihan kursus <strong>{{ course?.title }}</strong>.
+                        </p>
+                    </div>
+                    <div class="rounded-xl bg-slate-100 dark:bg-slate-800 px-4 py-3">
+                        <p class="text-[11px] text-slate-400 uppercase font-semibold">Nomor Sertifikat</p>
+                        <p class="font-mono font-bold text-slate-800 dark:text-white select-all">{{ certificateCode }}</p>
+                    </div>
+                </template>
+                <p v-else class="text-sm text-rose-600">{{ certificateError }}</p>
+            </div>
+            <template #footer>
+                <Button variant="secondary" size="sm" @click="isCertModalOpen = false">Tutup</Button>
+                <a
+                    v-if="certificateCode"
+                    :href="`/certificates/${certificateCode}`"
+                    target="_blank"
+                    class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 transition"
+                >
+                    <Download class="h-4 w-4" />
+                    <span>Lihat & Cetak Sertifikat</span>
+                </a>
+            </template>
+        </Modal>
     </div>
 </template>

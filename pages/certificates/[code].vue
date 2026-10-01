@@ -21,7 +21,7 @@ const { data: cert, error } = await useAsyncData(`cert_${code}`, async () => {
     .from('certificates')
     .select(`
       *,
-      user:profiles!certificates_user_id_fkey(name, email),
+      user:profiles!certificates_user_id_fkey(name),
       course:courses(title, description, instructor:profiles!courses_instructor_id_fkey(name))
     `)
     .eq('certificate_code', code)
@@ -116,6 +116,19 @@ useHead({
           </div>
         </div>
       </div>
+    </div>
+  </div>
+  <div v-else class="py-24 bg-slate-100 min-h-screen px-4">
+    <div class="max-w-md mx-auto text-center space-y-4 rounded-3xl bg-white p-8 shadow-sm border border-slate-200">
+      <Award class="w-10 h-10 mx-auto text-slate-300" />
+      <h1 class="text-lg font-bold text-slate-900">Sertifikat Tidak Ditemukan</h1>
+      <p class="text-sm text-slate-500">
+        Nomor sertifikat <span class="font-mono font-semibold">{{ code }}</span> tidak terdaftar atau tidak valid.
+      </p>
+      <NuxtLink to="/" class="inline-flex items-center gap-2 text-xs font-semibold text-indigo-600 hover:text-indigo-700">
+        <ArrowLeft class="w-4 h-4" />
+        <span>Kembali ke Beranda</span>
+      </NuxtLink>
     </div>
   </div>
 </template>

@@ -36,6 +36,12 @@ export default defineNuxtConfig({
     preset: 'vercel'
   },
 
+  runtimeConfig: {
+    midtransServerKey: process.env.MIDTRANS_SERVER_KEY || '',
+    midtransClientKey: process.env.MIDTRANS_CLIENT_KEY || '',
+    midtransIsProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
+  },
+
   app: {
     head: {
       title: 'MIO Academy',

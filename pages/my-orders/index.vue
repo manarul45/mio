@@ -56,7 +56,7 @@ const loadOrders = async () => {
                     courses:course_id(title)
                 )
             `)
-            .eq('user_id', user.value.id)
+            .eq('user_id', user.value.id || (user.value as any).sub)
             .order('created_at', { ascending: false });
 
         if (error) throw error;

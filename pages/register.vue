@@ -13,6 +13,9 @@ const passwordConfirmation = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const emailLocked = ref(true)
+const passwordLocked = ref(true)
+const confirmLocked = ref(true)
 
 const handleRegister = async () => {
   if (password.value !== passwordConfirmation.value) {
@@ -86,7 +89,7 @@ useHead({
         <span>{{ successMessage }}</span>
       </div>
 
-      <form class="mt-6 space-y-4" @submit.prevent="handleRegister">
+      <form class="mt-6 space-y-4" autocomplete="off" @submit.prevent="handleRegister">
         <div>
           <label class="block text-sm font-semibold text-slate-700 mb-1">Nama Lengkap</label>
           <div class="relative">
@@ -112,9 +115,14 @@ useHead({
             <input
               v-model="email"
               type="email"
+              name="new-account-email"
+              autocomplete="off"
+              :readonly="emailLocked"
               required
               class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 text-sm"
               placeholder="nama@email.com"
+              @pointerdown="emailLocked = false"
+              @focus="emailLocked = false"
             />
           </div>
         </div>
@@ -144,10 +152,15 @@ useHead({
             <input
               v-model="password"
               type="password"
+              name="new-account-password"
+              autocomplete="new-password"
+              :readonly="passwordLocked"
               required
               minlength="6"
               class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 text-sm"
               placeholder="Minimal 6 karakter"
+              @pointerdown="passwordLocked = false"
+              @focus="passwordLocked = false"
             />
           </div>
         </div>
@@ -161,9 +174,14 @@ useHead({
             <input
               v-model="passwordConfirmation"
               type="password"
+              name="new-account-password-confirm"
+              autocomplete="new-password"
+              :readonly="confirmLocked"
               required
               class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 text-sm"
               placeholder="Ulangi kata sandi"
+              @pointerdown="confirmLocked = false"
+              @focus="confirmLocked = false"
             />
           </div>
         </div>

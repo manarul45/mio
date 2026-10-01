@@ -64,26 +64,61 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Trigger to automatically populate public.profiles when a new user registers in Supabase Auth
+-- Trigger to automatically populate public.profiles when a new user registers in Supabase Auth.
+-- Peran yang tidak dikenal, nomor WhatsApp terlalu panjang, atau nama/email kosong
+-- tidak boleh menggagalkan pembuatan akun (pesan: Database error saving new user).
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    meta jsonb := COALESCE(NEW.raw_user_meta_data, '{}'::jsonb);
+    raw_role text := upper(btrim(COALESCE(meta->>'role', '')));
+    safe_role public.user_role := 'STUDENT';
+    safe_email text;
+    safe_name text;
+    safe_wa text;
 BEGIN
+    IF raw_role IN ('SUPER_ADMIN', 'ADMIN', 'INSTRUCTOR', 'STUDENT') THEN
+        safe_role := raw_role::public.user_role;
+    END IF;
+
+    safe_email := COALESCE(
+        NULLIF(btrim(NEW.email), ''),
+        NULLIF(btrim(meta->>'email'), ''),
+        NEW.id::text || '@user.local'
+    );
+    safe_name := COALESCE(
+        NULLIF(btrim(meta->>'name'), ''),
+        NULLIF(btrim(meta->>'full_name'), ''),
+        split_part(safe_email, '@', 1),
+        'Pengguna'
+    );
+    safe_wa := NULLIF(left(btrim(COALESCE(meta->>'whatsapp_number', '')), 30), '');
+
     INSERT INTO public.profiles (id, name, email, whatsapp_number, avatar_url, role)
     VALUES (
         NEW.id,
-        COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
-        NEW.email,
-        NEW.raw_user_meta_data->>'whatsapp_number',
-        NEW.raw_user_meta_data->>'avatar_url',
-        COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'STUDENT')
+        safe_name,
+        safe_email,
+        safe_wa,
+        NULLIF(btrim(COALESCE(meta->>'avatar_url', '')), ''),
+        safe_role
     )
     ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
+        email = EXCLUDED.email,
+        whatsapp_number = COALESCE(EXCLUDED.whatsapp_number, public.profiles.whatsapp_number),
         avatar_url = COALESCE(EXCLUDED.avatar_url, public.profiles.avatar_url),
         updated_at = NOW();
+
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
+
+ALTER FUNCTION public.handle_new_user() OWNER TO postgres;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
@@ -541,6 +576,7 @@ $$;
 
 -- Profiles: Public can read basic profile, user can edit their own, admin can do all
 CREATE POLICY "Public profiles are readable" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can insert own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
 CREATE POLICY "Admin full profile access" ON public.profiles FOR ALL USING (public.is_admin());
 
@@ -614,6 +650,18 @@ CREATE POLICY "Admin manage landing pages" ON public.landing_pages FOR ALL USING
 CREATE POLICY "Users read own orders" ON public.orders FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
 CREATE POLICY "Users create orders" ON public.orders FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Admin manage orders" ON public.orders FOR ALL USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Users read own order items" ON public.order_items;
+CREATE POLICY "Users read own order items" ON public.order_items FOR SELECT USING (
+    instructor_id = auth.uid()
+    OR public.is_admin()
+    OR EXISTS (
+        SELECT 1 FROM public.orders o
+        WHERE o.id = order_items.order_id AND o.user_id = auth.uid()
+    )
+);
+DROP POLICY IF EXISTS "Admin manage order items" ON public.order_items;
+CREATE POLICY "Admin manage order items" ON public.order_items FOR ALL USING (public.is_admin());
 
 CREATE POLICY "Users read own enrollments" ON public.enrollments FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
 CREATE POLICY "Admin manage enrollments" ON public.enrollments FOR ALL USING (public.is_admin());

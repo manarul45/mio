@@ -23,7 +23,7 @@ const supabase = useSupabaseClient()
 const swal = useSwal()
 const orderNumber = route.params.orderNumber as string
 
-const { data: order } = await useAsyncData(`order_invoice_${orderNumber}`, async () => {
+const { data: order, refresh: refreshOrder } = await useAsyncData(`order_invoice_${orderNumber}`, async () => {
   const { data, error } = await supabase
     .from('orders')
     .select(`
@@ -66,15 +66,74 @@ const copyText = (text: string, label = 'Teks') => {
   swal.toastSuccess(`${label} Disalin!`)
 }
 
-const bankInstructions = ref(`Bank Central Asia (BCA): 1234-5678-90
-a.n. Manarul Ilmi Online Learning Academy
-Bank Mandiri: 9876-5432-10
-a.n. PT Manarul Ilmi`)
+const bankInstructions = ref('')
 
 const adminWhatsappNumber = ref('6281234567890')
+const { openPayment } = useMidtransSnap()
+const isContinuingPayment = ref(false)
+const isMidtransOrder = computed(() => {
+  const method = order.value?.payment_method || ''
+  return method === 'midtrans' || method === 'qris' || method.endsWith('_va') || method === 'echannel' || method === 'mandiri_bill'
+})
+
+const syncPayment = async () => {
+  if (!order.value || order.value.status !== 'pending') return
+  if (!isMidtransOrder.value && !order.value.payment_gateway_ref) return
+  const res = await $fetch<{ paid: boolean }>(`/api/orders/${orderNumber}/sync-payment`, { method: 'POST' })
+  if (res.paid) await refreshOrder()
+}
+
+const isChangingMethod = ref(false)
+const changePaymentMethod = async (nextMethod: 'qris' | 'bank_transfer') => {
+  if (!order.value) return
+  const confirmed = nextMethod === 'qris'
+    ? await swal.confirm(
+        'Ganti ke QRIS?',
+        'Tagihan transfer ini diganti menjadi QRIS. Jangan transfer ke rekening lagi supaya tidak membayar dua kali.',
+        'Ya, Ganti ke QRIS',
+      )
+    : await swal.confirm(
+        'Ganti ke Transfer?',
+        'Tagihan ini diganti menjadi transfer ke rekening. Kalau kode QR sudah sempat dibuka, jangan dibayar lagi supaya tidak membayar dua kali.',
+        'Ya, Ganti ke Transfer',
+      )
+  if (!confirmed) return
+
+  isChangingMethod.value = true
+  try {
+    await $fetch(`/api/orders/${orderNumber}/change-method`, {
+      method: 'POST',
+      body: { payment_method: nextMethod },
+    })
+    await refreshOrder()
+    if (nextMethod === 'qris') await continuePayment()
+  } catch (err: any) {
+    swal.error('Metode bayar belum diganti', err.data?.statusMessage || err.message || 'Coba lagi beberapa saat.')
+  } finally {
+    isChangingMethod.value = false
+  }
+}
+
+const continuePayment = async () => {
+  if (!order.value) return
+  isContinuingPayment.value = true
+  try {
+    const snap = await $fetch<any>('/api/checkout/midtrans-token', {
+      method: 'POST',
+      body: { order_number: order.value.order_number },
+    })
+    await openPayment(snap)
+    await syncPayment()
+  } catch (err: any) {
+    swal.error('Pembayaran belum terbuka', err.data?.statusMessage || err.message || 'Coba lagi beberapa saat.')
+  } finally {
+    isContinuingPayment.value = false
+  }
+}
 
 onMounted(async () => {
   try {
+    await syncPayment()
     const { data: setRes } = await supabase
       .from('settings')
       .select('key, value')
@@ -96,10 +155,10 @@ onMounted(async () => {
 
 const whatsappConfirmationUrl = computed(() => {
   if (!order.value) return '#'
-  const msg = `Halo Admin MIO Learning Academy, saya ingin konfirmasi pembayaran untuk pesanan:
+  const msg = `Assalamu 'alaikum Admin MIO Learning Academy, saya ingin konfirmasi pembayaran untuk pesanan:
 Nomor Order: ${order.value.order_number}
 Total Pembayaran: ${formatRupiah(order.value.final_amount)}
-Mohon bantu verifikasi dan aktivasi akses kursus saya. Terima kasih!`
+Mohon bantu verifikasi dan aktivasi akses kursus saya. Jazakumullahu khairan!`
   return `https://wa.me/${adminWhatsappNumber.value}?text=${encodeURIComponent(msg)}`
 })
 
@@ -157,7 +216,7 @@ useHead({
           <div>
             <span class="text-xs font-bold uppercase tracking-wider block">Status Pesanan</span>
             <p class="text-sm font-black">
-              {{ order.status === 'paid' ? 'LUNAS (AKSES AKTIF)' : order.status === 'pending' ? 'MENUNGGU VERIFIKASI ADMIN' : 'DIBATALKAN' }}
+              {{ order.status === 'paid' ? 'LUNAS (AKSES AKTIF)' : order.status === 'pending' && isMidtransOrder ? 'MENUNGGU PEMBAYARAN' : order.status === 'pending' ? 'MENUNGGU VERIFIKASI ADMIN' : 'DIBATALKAN' }}
             </p>
           </div>
         </div>
@@ -207,8 +266,38 @@ useHead({
           </div>
         </div>
 
+        <div v-if="order.status === 'pending' && isMidtransOrder" class="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 sm:p-6 dark:border-amber-900/60 dark:bg-amber-950/20 space-y-4">
+          <div class="flex items-center gap-2">
+            <CreditCard class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <h3 class="text-sm font-bold text-amber-950 dark:text-amber-200">
+              Selesaikan pembayaran Sandbox
+            </h3>
+          </div>
+          <p class="text-xs text-amber-900 dark:text-amber-100">
+            Bayar dengan memindai kode QRIS. Ini pembayaran percobaan, bukan uang sungguhan. Kelas terbuka setelah Midtrans menyatakan lunas.
+          </p>
+          <Button
+            type="button"
+            variant="primary"
+            class="w-full justify-center bg-emerald-600 hover:bg-emerald-700 text-white"
+            :loading="isContinuingPayment"
+            :disabled="isChangingMethod"
+            @click="continuePayment"
+          >
+            Bayar dengan QRIS
+          </Button>
+          <button
+            type="button"
+            class="w-full text-center text-xs font-semibold text-slate-600 underline underline-offset-2 hover:text-indigo-600 disabled:opacity-50 dark:text-slate-300"
+            :disabled="isChangingMethod || isContinuingPayment"
+            @click="changePaymentMethod('bank_transfer')"
+          >
+            Ganti ke Transfer ke Rekening
+          </button>
+        </div>
+
         <!-- Bank Instructions if Pending -->
-        <div v-if="order.status === 'pending'" class="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 sm:p-6 dark:border-amber-900/60 dark:bg-amber-950/20 space-y-4">
+        <div v-else-if="order.status === 'pending'" class="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 sm:p-6 dark:border-amber-900/60 dark:bg-amber-950/20 space-y-4">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <CreditCard class="h-5 w-5 text-amber-600 dark:text-amber-400" />
@@ -221,20 +310,22 @@ useHead({
             </span>
           </div>
 
-          <div class="p-4 rounded-xl bg-white border border-amber-100 dark:bg-slate-900 dark:border-slate-800 font-mono text-xs space-y-2">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="text-slate-400 text-[10px]">BANK TUJUAN</p>
-                <p class="text-sm font-extrabold text-slate-900 dark:text-white">BCA — 1234-5678-90</p>
-                <p class="text-slate-500 text-[11px]">a.n. Manarul Ilmi Online Learning Academy</p>
+          <div class="p-4 rounded-xl bg-white border border-amber-100 dark:bg-slate-900 dark:border-slate-800 text-sm space-y-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-slate-400 text-[10px] font-bold tracking-wider">REKENING TUJUAN</p>
+                <p class="mt-2 whitespace-pre-line font-semibold text-slate-900 dark:text-white">
+                  {{ bankInstructions || 'Rekening belum diisi. Isi di menu Pengaturan admin, bagian instruksi transfer.' }}
+                </p>
               </div>
               <button
+                v-if="bankInstructions"
                 type="button"
-                @click="copyText('1234567890', 'No. Rekening')"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition dark:bg-slate-800 dark:text-slate-200"
+                @click="copyText(bankInstructions, 'Instruksi transfer')"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition dark:bg-slate-800 dark:text-slate-200 shrink-0"
               >
                 <Copy class="h-3.5 w-3.5" />
-                <span>Salin No. Rek</span>
+                <span>Salin</span>
               </button>
             </div>
           </div>
@@ -249,6 +340,14 @@ useHead({
             <MessageCircle class="h-4 w-4" />
             <span>Kirim Bukti Transfer via WhatsApp Admin</span>
           </a>
+          <button
+            type="button"
+            class="w-full text-center text-xs font-semibold text-slate-600 underline underline-offset-2 hover:text-indigo-600 disabled:opacity-50 dark:text-slate-300"
+            :disabled="isChangingMethod || isContinuingPayment"
+            @click="changePaymentMethod('qris')"
+          >
+            {{ isChangingMethod ? 'Mengganti metode...' : 'Ganti ke QRIS' }}
+          </button>
         </div>
 
         <!-- Ordered Items -->

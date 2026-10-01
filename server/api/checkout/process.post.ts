@@ -1,4 +1,5 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { getAuthenticatedUserId } from '~/server/utils/authHelper'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -8,10 +9,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Kursus wajib dipilih.' })
   }
 
-  const supabase = await serverSupabaseClient(event)
-  const user = await serverSupabaseUser(event)
+  const userId = await getAuthenticatedUserId(event)
+  const supabase = getAdminSupabaseClient(event)
 
-  if (!user) {
+  if (!userId) {
     throw createError({ statusCode: 401, statusMessage: 'Anda harus masuk akun terlebih dahulu untuk melanjutkan pendaftaran.' })
   }
 
@@ -30,7 +31,7 @@ export default defineEventHandler(async (event) => {
   const { data: existingEnrollment } = await supabase
     .from('enrollments')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .eq('course_id', course.id)
     .eq('status', 'active')
     .maybeSingle()
@@ -76,6 +77,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  const requestedMethod = body.payment_method === 'qris' ? 'qris' : 'bank_transfer'
   const finalAmount = Math.max(0, basePrice - voucherDiscount)
   const isFree = finalAmount === 0
 
@@ -86,7 +88,7 @@ export default defineEventHandler(async (event) => {
 
   // Validate affiliate user id
   let validAffiliateId: string | null = null
-  if (affiliate_user_id && affiliate_user_id !== user.id) {
+  if (affiliate_user_id && affiliate_user_id !== userId) {
     const { data: affUser } = await supabase
       .from('profiles')
       .select('id')
@@ -102,7 +104,7 @@ export default defineEventHandler(async (event) => {
     .from('orders')
     .insert({
       order_number: orderNumber,
-      user_id: user.id,
+      user_id: userId,
       customer_whatsapp: customer_whatsapp || null,
       affiliate_user_id: validAffiliateId,
       total_amount: course.price,
@@ -111,7 +113,7 @@ export default defineEventHandler(async (event) => {
       voucher_code: validVoucherCode,
       voucher_discount_amount: voucherDiscount,
       status: isFree ? 'paid' : 'pending',
-      payment_method: isFree ? 'free_enrollment' : 'bank_transfer',
+      payment_method: isFree ? 'free_enrollment' : requestedMethod,
       paid_at: isFree ? new Date().toISOString() : null
     })
     .select()
@@ -167,7 +169,7 @@ export default defineEventHandler(async (event) => {
     await supabase
       .from('enrollments')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         course_id: course.id,
         order_id: order.id,
         status: 'active'
@@ -178,6 +180,7 @@ export default defineEventHandler(async (event) => {
     success: true,
     order_number: order.order_number,
     is_free: isFree,
+    payment_method: isFree ? 'free_enrollment' : requestedMethod,
     final_amount: finalAmount,
     message: isFree
       ? 'Pendaftaran kursus gratis berhasil! Selamat belajar.'

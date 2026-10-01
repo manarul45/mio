@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Lock,
   ArrowLeft,
-  MessageCircle,
   User,
   UserCheck,
   Mail,
@@ -18,6 +17,8 @@ import {
   Eye,
   EyeOff,
   Ticket,
+  Landmark,
+  QrCode,
 } from 'lucide-vue-next'
 import type { Course } from '~/types/database.types'
 
@@ -26,7 +27,9 @@ const router = useRouter()
 const supabase = useSupabaseClient()
 const { user, profile, fetchProfile } = useAuthProfile()
 const swal = useSwal()
+const { openPayment } = useMidtransSnap()
 const slug = route.params.slug as string
+const paymentMethod = ref<'bank_transfer' | 'qris'>('bank_transfer')
 
 // Fetch Course
 const { data: course } = await useAsyncData(`checkout_course_${slug}`, async () => {
@@ -88,11 +91,6 @@ const finalPrice = computed(() => {
   const vDiscount = appliedVoucher.value?.discount_amount || 0
   return Math.max(0, effectivePrice.value - vDiscount)
 })
-
-const bankInstructions = `Bank Central Asia (BCA): 1234-5678-90
-a.n. Manarul Ilmi Online Learning Academy
-Bank Mandiri: 9876-5432-10
-a.n. PT Manarul Ilmi`
 
 const applyVoucherCode = async () => {
   if (!voucherInput.value.trim() || !course.value) return
@@ -175,12 +173,20 @@ const submitPayment = async () => {
         voucher_code: appliedVoucher.value?.code || null,
         customer_whatsapp: whatsappNumber.value || profile.value?.whatsapp_number,
         affiliate_user_id: affiliateRef.value,
+        payment_method: paymentMethod.value,
       }
     })
 
     if (res.is_free) {
       swal.toastSuccess('Pendaftaran berhasil! Selamat belajar.')
       router.push(`/learning/${course.value.slug}`)
+    } else if (paymentMethod.value === 'qris') {
+      const snap = await $fetch<any>('/api/checkout/midtrans-token', {
+        method: 'POST',
+        body: { order_number: res.order_number },
+      })
+      await openPayment(snap)
+      router.push(`/orders/${res.order_number}`)
     } else {
       router.push(`/orders/${res.order_number}`)
     }
@@ -210,7 +216,7 @@ useHead({
         </NuxtLink>
       </div>
 
-      <form @submit.prevent="submitPayment">
+      <form autocomplete="off" novalidate @submit.prevent="submitPayment">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-8">
           <!-- Left 2 Cols: Customer Information & Payment Methods -->
           <div class="md:col-span-2 space-y-4 sm:space-y-6">
@@ -302,6 +308,9 @@ useHead({
                     v-model="email"
                     label="Alamat Email *"
                     type="email"
+                    name="new-account-email"
+                    autocomplete="off"
+                    block-saved-fill
                     placeholder="budi@example.com"
                     required
                   />
@@ -318,6 +327,9 @@ useHead({
                       v-model="password"
                       label="Buat Kata Sandi Akun *"
                       :type="showPassword ? 'text' : 'password'"
+                      name="new-account-password"
+                      autocomplete="new-password"
+                      block-saved-fill
                       placeholder="Masukkan kata sandi (huruf dan angka)"
                       required
                     >
@@ -348,32 +360,52 @@ useHead({
               </h2>
 
               <div class="space-y-3">
-                <!-- WhatsApp & Manual Bank Transfer (Primary) -->
-                <div class="cursor-pointer rounded-2xl border p-4 transition flex items-center justify-between border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-600/20 dark:bg-emerald-950/30">
+                <button
+                  type="button"
+                  class="w-full rounded-2xl border p-4 text-left flex items-center justify-between transition"
+                  :class="paymentMethod === 'bank_transfer'
+                    ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-600/20 dark:bg-emerald-950/30'
+                    : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'"
+                  @click="paymentMethod = 'bank_transfer'"
+                >
                   <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shrink-0">
-                      <MessageCircle class="h-5 w-5" />
+                      <Landmark class="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p class="text-xs font-bold text-slate-900 dark:text-white">Transfer ke Rekening</p>
+                      <p class="text-[11px] text-slate-500">Transfer biasa ke rekening akademi, tanpa nomor virtual. Kelas dibuka setelah admin mengonfirmasi.</p>
+                    </div>
+                  </div>
+                  <div class="flex h-5 w-5 items-center justify-center rounded-full border shrink-0" :class="paymentMethod === 'bank_transfer' ? 'border-emerald-600' : 'border-slate-300'">
+                    <div v-if="paymentMethod === 'bank_transfer'" class="h-2.5 w-2.5 rounded-full bg-emerald-600"></div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  class="w-full rounded-2xl border p-4 text-left flex items-center justify-between transition"
+                  :class="paymentMethod === 'qris'
+                    ? 'border-indigo-600 bg-indigo-50/50 ring-2 ring-indigo-600/20 dark:bg-indigo-950/30'
+                    : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'"
+                  @click="paymentMethod = 'qris'"
+                >
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shrink-0">
+                      <QrCode class="h-5 w-5" />
                     </div>
                     <div>
                       <div class="flex items-center gap-2">
-                        <p class="text-xs font-bold text-slate-900 dark:text-white">Transfer Bank & Konfirmasi WhatsApp</p>
-                        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                          Rekomendasi
-                        </span>
+                        <p class="text-xs font-bold text-slate-900 dark:text-white">QRIS</p>
+                        <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-200">Percobaan</span>
                       </div>
-                      <p class="text-[11px] text-slate-500">Dapatkan nomor invoice & kirim bukti transfer langsung ke WhatsApp Admin.</p>
+                      <p class="text-[11px] text-slate-500">Bayar dengan memindai kode QR. Kelas terbuka otomatis setelah pembayaran lunas.</p>
                     </div>
                   </div>
-                  <div class="flex h-5 w-5 items-center justify-center rounded-full border border-emerald-600">
-                    <div class="h-2.5 w-2.5 rounded-full bg-emerald-600"></div>
+                  <div class="flex h-5 w-5 items-center justify-center rounded-full border shrink-0" :class="paymentMethod === 'qris' ? 'border-indigo-600' : 'border-slate-300'">
+                    <div v-if="paymentMethod === 'qris'" class="h-2.5 w-2.5 rounded-full bg-indigo-600"></div>
                   </div>
-                </div>
-
-                <!-- Bank Instructions Preview -->
-                <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-800/40 text-xs text-slate-600 dark:text-slate-300 space-y-1.5 font-mono">
-                  <p class="text-[11px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Rekening Tujuan Transfer:</p>
-                  <p class="whitespace-pre-line text-xs">{{ bankInstructions }}</p>
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -474,8 +506,8 @@ useHead({
                 size="lg"
                 class="w-full justify-center mt-4 shadow-lg shadow-emerald-200 dark:shadow-none bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                <MessageCircle class="mr-2 h-4 w-4" />
-                <span>Beli & Buat Invoice WhatsApp</span>
+                <ShieldCheck class="mr-2 h-4 w-4" />
+                <span>{{ paymentMethod === 'qris' ? 'Bayar dengan QRIS' : 'Buat Tagihan Transfer' }}</span>
               </Button>
 
               <div class="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2 text-[11px] text-slate-500">
@@ -485,7 +517,7 @@ useHead({
                 </div>
                 <div class="flex items-center gap-2">
                   <CheckCircle2 class="h-4 w-4 text-indigo-500 shrink-0" />
-                  <span>Akses seumur hidup diaktifkan setelah verifikasi</span>
+                  <span>{{ paymentMethod === 'qris' ? 'Akses kelas terbuka otomatis setelah QRIS lunas' : 'Akses kelas dibuka setelah transfer dikonfirmasi admin' }}</span>
                 </div>
               </div>
             </div>

@@ -1,4 +1,6 @@
 <script setup>
+import { ref } from 'vue'
+
 const props = defineProps({
     modelValue: {
         type: [String, Number],
@@ -36,7 +38,21 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    name: {
+        type: String,
+        default: undefined,
+    },
+    autocomplete: {
+        type: String,
+        default: undefined,
+    },
+    blockSavedFill: {
+        type: Boolean,
+        default: false,
+    },
 });
+
+const locked = ref(props.blockSavedFill);
 
 defineEmits(['update:modelValue']);
 </script>
@@ -54,11 +70,16 @@ defineEmits(['update:modelValue']);
         <div class="relative rounded-lg shadow-sm">
             <input
                 :id="id"
+                :name="name"
                 :type="type"
                 :value="modelValue"
                 :placeholder="placeholder"
                 :disabled="disabled"
                 :required="required"
+                :autocomplete="autocomplete"
+                :readonly="locked"
+                @pointerdown="locked = false"
+                @focus="locked = false"
                 @input="$emit('update:modelValue', $event.target.value)"
                 :class="[
                     'block w-full rounded-lg border text-sm transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-0 disabled:bg-slate-50 disabled:text-slate-400 dark:bg-slate-900 dark:text-slate-100',

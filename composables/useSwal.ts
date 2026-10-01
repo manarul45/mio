@@ -120,6 +120,7 @@ export function useSwal() {
     toastInfo,
     fireSuccess,
     fireError,
+    error: fireError,
     confirmDialog,
     confirm,
   }

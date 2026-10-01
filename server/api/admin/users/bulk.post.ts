@@ -1,20 +1,30 @@
 import { requireAdmin } from '~/server/utils/authHelper'
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { logAuditAction } from '~/server/utils/auditLogger'
+import { activateEnrollments, assertCoursesExist, parseCourseIds } from '~/server/utils/adminEnrollment'
+
+const ALLOWED_ROLES = ['STUDENT', 'INSTRUCTOR', 'ADMIN']
 
 export default defineEventHandler(async (event) => {
   const client = getAdminSupabaseClient(event)
 const { userId } = await requireAdmin(event)
 
   const body = await readBody(event)
-  const { raw_users, default_role = 'STUDENT', default_password } = body
+  const { raw_users, default_password } = body
+  const default_role = String(body?.default_role || 'STUDENT').toUpperCase()
+  const defaultCourseIds = parseCourseIds(body?.course_ids)
 
   if (!raw_users || typeof raw_users !== 'string' || !raw_users.trim()) {
     throw createError({ statusCode: 400, statusMessage: 'Data pengguna massal wajib diisi.' })
   }
+  if (!ALLOWED_ROLES.includes(default_role)) {
+    throw createError({ statusCode: 400, statusMessage: 'Peran default tidak dikenal.' })
+  }
+  await assertCoursesExist(client, defaultCourseIds)
 
   const rawInput = raw_users.trim()
   let createdCount = 0
+  let existingCount = 0
   let enrolledCount = 0
   let skippedCount = 0
 
@@ -63,89 +73,66 @@ const { userId } = await requireAdmin(event)
     throw createError({ statusCode: 400, statusMessage: 'Maksimal 500 pengguna per batch import.' })
   }
 
+  const { data: allCourses } = await client.from('courses').select('id')
+  const validCourseIds = new Set((allCourses || []).map((c: any) => Number(c.id)))
+
   // 3. Process each user item
   for (const item of items) {
     const name = (item.name || '').trim()
     const email = (item.email || '').trim().toLowerCase()
     const password = item.password || default_password || 'Mio123456!'
-    const role = (item.role ? item.role.toUpperCase() : default_role)
-    const whatsapp = (item.whatsapp_number || item.whatsapp || item.wa || '').trim()
-    const courseIds = Array.isArray(item.course_ids) ? item.course_ids : []
+    const role = String(item.role || default_role).trim().toUpperCase()
+    const whatsapp = String(item.whatsapp_number || item.whatsapp || item.wa || '').trim()
+    const courseIds = [...new Set([...defaultCourseIds, ...parseCourseIds(item.course_ids)])]
+      .filter((id) => validCourseIds.has(id))
 
-    // Validate email format
-    if (!name || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !ALLOWED_ROLES.includes(role)) {
       skippedCount++
       continue
     }
 
     try {
-      // Create user in Supabase Auth
+      const { data: existingProfile } = await client
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle()
+
+      if (existingProfile) {
+        await activateEnrollments(client, existingProfile.id, courseIds)
+        enrolledCount += courseIds.length
+        existingCount++
+        continue
+      }
+
       const { data: authData, error: authError } = await client.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
-        user_metadata: {
-          name,
-          whatsapp_number: whatsapp,
-          role,
-        }
+        user_metadata: { name, whatsapp_number: whatsapp },
       })
-
       if (authError || !authData.user) {
-        // User already exists, update profile if needed
-        const { data: existingProfile } = await client
-          .from('profiles')
-          .select('id')
-          .eq('email', email)
-          .maybeSingle()
-
-        if (existingProfile) {
-          // Auto enroll if course_ids specified
-          for (const cId of courseIds) {
-            const { error: enrErr } = await client
-              .from('enrollments')
-              .upsert({
-                user_id: existingProfile.id,
-                course_id: cId,
-                status: 'active',
-                enrolled_at: new Date().toISOString(),
-              }, { onConflict: 'user_id,course_id' })
-            if (!enrErr) enrolledCount++
-          }
-        }
         skippedCount++
         continue
       }
 
       const newUserId = authData.user.id
-
-      // Upsert profile
-      await client
-        .from('profiles')
-        .upsert({
-          id: newUserId,
-          name,
-          email,
-          whatsapp_number: whatsapp || null,
-          role,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-
+      const { error: profileError } = await client.from('profiles').upsert({
+        id: newUserId,
+        name,
+        email,
+        whatsapp_number: whatsapp || null,
+        role,
+        updated_at: new Date().toISOString(),
+      })
+      if (profileError) {
+        skippedCount++
+        continue
+      }
       createdCount++
 
-      // Auto enroll courses if provided
-      for (const cId of courseIds) {
-        const { error: enrErr } = await client
-          .from('enrollments')
-          .upsert({
-            user_id: newUserId,
-            course_id: cId,
-            status: 'active',
-            enrolled_at: new Date().toISOString(),
-          }, { onConflict: 'user_id,course_id' })
-        if (!enrErr) enrolledCount++
-      }
+      await activateEnrollments(client, newUserId, courseIds)
+      enrolledCount += courseIds.length
     } catch {
       skippedCount++
     }
@@ -160,16 +147,19 @@ const { userId } = await requireAdmin(event)
     entityId: 0,
     newValues: {
       created_count: createdCount,
+      existing_count: existingCount,
       enrolled_count: enrolledCount,
       skipped_count: skippedCount,
+      course_ids: defaultCourseIds,
     },
   })
 
   return {
     success: true,
     created_count: createdCount,
+    existing_count: existingCount,
     enrolled_count: enrolledCount,
     skipped_count: skippedCount,
-    message: `Import Selesai: ${createdCount} pengguna baru berhasil dibuat, ${enrolledCount} pendaftaran kursus otomatis, ${skippedCount} dilewati (duplikat/format salah).`
+    message: `Import Selesai: ${createdCount} pengguna baru dibuat, ${existingCount} pengguna lama ditambahkan kursusnya, ${enrolledCount} pendaftaran kursus aktif, ${skippedCount} dilewati (format salah atau peran tidak dikenal).`
   }
 })

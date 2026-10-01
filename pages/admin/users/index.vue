@@ -137,7 +137,14 @@ const bulkForm = ref({
     raw_users: '',
     default_role: 'STUDENT',
     default_password: '',
+    course_ids: [] as number[],
 });
+
+const openBulkModal = () => {
+    courseSearch.value = '';
+    isBulkModalOpen.value = true;
+    loadCourseOptions();
+};
 const isSubmittingBulk = ref(false);
 
 const loadUsers = async () => {
@@ -262,6 +269,7 @@ const handleBulkImport = async () => {
         swal.fireSuccess('Import Berhasil!', res.message);
         isBulkModalOpen.value = false;
         bulkForm.value.raw_users = '';
+        bulkForm.value.course_ids = [];
         loadUsers();
     } catch (err: any) {
         swal.fireError('Import Gagal', err.data?.statusMessage || err.message);
@@ -353,7 +361,7 @@ onMounted(() => {
             </div>
 
             <div class="flex items-center gap-2">
-                <Button variant="secondary" size="md" @click="isBulkModalOpen = true">
+                <Button variant="secondary" size="md" @click="openBulkModal">
                     <UploadCloud class="mr-1.5 h-4 w-4" />
                     <span>Import Massal</span>
                 </Button>
@@ -676,9 +684,9 @@ onMounted(() => {
             <div class="space-y-4">
                 <div class="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-100 dark:bg-indigo-950/40 dark:border-indigo-900 text-xs text-indigo-800 dark:text-indigo-300 space-y-1">
                     <p class="font-bold">Format Baris Teks (CSV / Delimiter):</p>
-                    <code class="block font-mono text-[11px] text-indigo-900 dark:text-indigo-200">Nama, Email, Password, Role, WhatsApp, CourseIDs</code>
-                    <p class="text-[10px] text-indigo-600 dark:text-indigo-400">Contoh: <code>Fauzan, fauzan@gmail.com, Pass123, STUDENT, 08123456789, 1:2</code></p>
-                    <p class="text-[10px] text-indigo-600 dark:text-indigo-400">Anda juga dapat menempelkan langsung array JSON.</p>
+                    <code class="block font-mono text-[11px] text-indigo-900 dark:text-indigo-200">Nama, Email, Password, Role, WhatsApp</code>
+                    <p class="text-[10px] text-indigo-600 dark:text-indigo-400">Contoh: <code>Fauzan, fauzan@gmail.com, Pass123, STUDENT, 08123456789</code></p>
+                    <p class="text-[10px] text-indigo-600 dark:text-indigo-400">Password, Role, dan WhatsApp boleh dikosongkan (memakai nilai default). Email yang sudah terdaftar hanya ditambahkan kursusnya.</p>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
@@ -704,6 +712,31 @@ onMounted(() => {
                         placeholder="Ahmad Fauzan, ahmad@gmail.com, Pass123, STUDENT, 08123456789&#10;Siti Aisyah, siti@gmail.com, Pass123, STUDENT, 08198765432"
                         class="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white font-mono text-xs text-slate-900 focus:border-indigo-600 focus:outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                     ></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Daftarkan Semua ke Kursus (opsional)
+                    </label>
+                    <input
+                        v-model="courseSearch"
+                        type="text"
+                        placeholder="Cari judul kursus..."
+                        class="w-full mb-2 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-900 focus:border-indigo-600 focus:outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                    />
+                    <div class="max-h-40 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+                        <label
+                            v-for="c in filteredCourseOptions"
+                            :key="c.id"
+                            class="flex items-center gap-2.5 px-3 py-2 text-xs cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                        >
+                            <input v-model="bulkForm.course_ids" type="checkbox" :value="c.id" class="rounded" />
+                            <span class="flex-1 text-slate-800 dark:text-slate-200">{{ c.title }}</span>
+                            <Badge v-if="courseStatusLabel(c.status)" variant="gray" size="sm">{{ c.status }}</Badge>
+                        </label>
+                        <p v-if="!filteredCourseOptions.length" class="px-3 py-3 text-xs text-slate-400">Tidak ada kursus.</p>
+                    </div>
+                    <p class="mt-1 text-[11px] text-slate-400">{{ bulkForm.course_ids.length }} kursus dipilih untuk semua peserta di atas</p>
                 </div>
             </div>
             <template #footer>

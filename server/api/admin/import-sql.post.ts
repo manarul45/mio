@@ -1,20 +1,12 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
-import { getAuthenticatedUserId } from '~/server/utils/authHelper'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
+import { requireAdmin } from '~/server/utils/authHelper'
 import { createClient } from '@supabase/supabase-js'
 import { parseMySqlDump } from '~/server/utils/mysqlParser'
 
 export default defineEventHandler(async (event) => {
-  // 1. Verifikasi User Login
-const sessionUser: any = await serverSupabaseUser(event).catch(() => null)
-const userId = sessionUser?.id || sessionUser?.sub || await getAuthenticatedUserId(event)
-if (!userId) {
-  throw createError({
-    statusCode: 401,
-    statusMessage: 'Sesi login tidak sah atau telah berakhir. Harap login terlebih dahulu sebagai Admin.'
-  })
-}
-const user = sessionUser || { id: userId, email: '', user_metadata: {}, app_metadata: {} }
-user.id = userId
+  // 1. Verifikasi Hak Akses Admin / Super Admin
+  const { userId } = await requireAdmin(event)
+  const user = { id: userId }
 
   // 2. Dapatkan Supabase Client (Prioritaskan Service Role Key untuk Bypass RLS Administrasi Penuh)
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
@@ -36,42 +28,7 @@ user.id = userId
     }
   }
 
-  // 3. Verifikasi Hak Akses Admin / Super Admin
-  const { data: profile } = await client
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const userMetaRole = (user.user_metadata?.role || user.app_metadata?.role || '').toString().toUpperCase()
-  const profileRole = (profile?.role || '').toString().toUpperCase()
-  const userEmail = (user.email || '').toLowerCase().trim()
-
-  const isAuthorizedAdmin =
-    profileRole === 'ADMIN' || profileRole === 'SUPER_ADMIN' ||
-    userMetaRole === 'ADMIN' || userMetaRole === 'SUPER_ADMIN' ||
-    userEmail === 'admin@mioacademy.com' || userEmail.startsWith('admin@')
-
-  if (!isAuthorizedAdmin) {
-    throw createError({
-      statusCode: 403,
-      statusMessage: 'Hanya Admin atau Super Admin yang diizinkan mengimpor database.'
-    })
-  }
-
-  // Otomatis sinkronkan role ADMIN pada tabel profiles agar query & permission selalu aktif
-  if (!profile) {
-    await client.from('profiles').insert({
-      id: user.id,
-      name: user.user_metadata?.name || user.user_metadata?.full_name || userEmail.split('@')[0],
-      email: user.email,
-      role: 'ADMIN'
-    })
-  } else if (profile.role !== 'ADMIN' && profile.role !== 'SUPER_ADMIN') {
-    await client.from('profiles').update({ role: 'ADMIN' }).eq('id', user.id)
-  }
-
-  // 4. Ekstrak Konten SQL (Mendukung multipart/form-data streaming & JSON body)
+  // 3. Ekstrak Konten SQL (Mendukung multipart/form-data streaming & JSON body)
   let sqlContent = ''
   const contentType = getHeader(event, 'content-type') || ''
 

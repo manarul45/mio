@@ -1,4 +1,6 @@
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { getAuthenticatedUserId } from '~/server/utils/authHelper'
+import { computeLockState, getUserProgressIds } from '~/server/utils/learningProgress'
 
 export default defineEventHandler(async (event) => {
   const slug = getRouterParam(event, 'slug')
@@ -7,6 +9,10 @@ export default defineEventHandler(async (event) => {
   }
 
   const client = getAdminSupabaseClient(event)
+  const userId = await getAuthenticatedUserId(event)
+  if (!userId) {
+    throw createError({ statusCode: 401, statusMessage: 'Silakan masuk terlebih dahulu.' })
+  }
 
   const { data, error } = await client
     .from('courses')
@@ -39,6 +45,7 @@ export default defineEventHandler(async (event) => {
           passing_score,
           time_limit_minutes,
           sort_order,
+          is_active,
           quiz_questions(
             id,
             quiz_id,
@@ -64,10 +71,33 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Kursus ruang belajar tidak ditemukan' })
   }
 
+  const [{ data: profile }, { data: enrollment }] = await Promise.all([
+    client.from('profiles').select('role').eq('id', userId).maybeSingle(),
+    client
+      .from('enrollments')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('course_id', data.id)
+      .eq('status', 'active')
+      .maybeSingle(),
+  ])
+
+  const isAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPER_ADMIN'
+  const isStaff = isAdmin || data.instructor_id === userId
+  const isEnrolled = !!enrollment
+
+  if (!isEnrolled && !isStaff) {
+    throw createError({ statusCode: 403, statusMessage: 'Anda belum terdaftar di kursus ini.' })
+  }
+
+  ;(data as any).viewer = { is_enrolled: isEnrolled, is_staff: isStaff }
+
   // Sort sections and items
   if (data.sections) {
     data.sections.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
     data.sections.forEach((sec: any) => {
+      sec.lessons = (sec.lessons || []).filter((l: any) => l.is_active !== false)
+      sec.quizzes = (sec.quizzes || []).filter((q: any) => q.is_active !== false)
       if (sec.lessons) {
         sec.lessons.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
         sec.lessons.forEach((l: any) => {
@@ -84,6 +114,8 @@ export default defineEventHandler(async (event) => {
               qn.question = qn.question_text
               if (qn.quiz_options) {
                 qn.quiz_options.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+                // Kunci jawaban tidak dikirim ke browser; penilaian dilakukan di /api/learning/submit-quiz.
+                qn.quiz_options.forEach((o: any) => { delete o.is_correct })
               }
             })
           }
@@ -91,6 +123,44 @@ export default defineEventHandler(async (event) => {
       }
     })
   }
+
+  // Urutan belajar: isi materi yang masih terkunci tidak dikirim ke browser.
+  let completedLessonIds = new Set<number>()
+  let passedQuizIds = new Set<number>()
+  if (isEnrolled) {
+    ;({ completedLessonIds, passedQuizIds } = await getUserProgressIds(client, userId))
+  }
+
+  if (!isStaff) {
+    const { lockedLessons, lockedQuizzes } = computeLockState(data.sections || [], completedLessonIds, passedQuizIds)
+    ;(data.sections || []).forEach((sec: any) => {
+      sec.lessons.forEach((l: any) => {
+        l.is_locked = lockedLessons.has(l.id)
+        if (l.is_locked) {
+          l.lock_reason = lockedLessons.get(l.id)
+          l.youtube_video_id = null
+          l.description = null
+        }
+      })
+      sec.quizzes.forEach((q: any) => {
+        q.is_locked = lockedQuizzes.has(q.id)
+        if (q.is_locked) {
+          q.lock_reason = lockedQuizzes.get(q.id)
+          q.quiz_questions = []
+        }
+      })
+      const sectionLocked = sec.lessons.length + sec.quizzes.length > 0
+        && sec.lessons.every((l: any) => l.is_locked)
+        && sec.quizzes.every((q: any) => q.is_locked)
+      if (sectionLocked) {
+        sec.kitab_url = null
+        sec.ebook_url = null
+      }
+    })
+  }
+
+  ;(data as any).viewer.completed_lesson_ids = [...completedLessonIds]
+  ;(data as any).viewer.passed_quiz_ids = [...passedQuizIds]
 
   return data
 })

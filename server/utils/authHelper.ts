@@ -18,7 +18,12 @@ async function userIdFromBearer(event: H3Event, client: ReturnType<typeof getAdm
   }
 }
 
-export async function getAuthenticatedUserId(event: H3Event, fallbackId?: string | null): Promise<string | null> {
+/**
+ * ID pengguna hanya diambil dari token atau cookie sesi yang sah.
+ * Jangan pernah menerima ID dari body/query: profil bisa dibaca publik,
+ * jadi siapa pun bisa menyamar sebagai admin atau instruktur.
+ */
+export async function getAuthenticatedUserId(event: H3Event): Promise<string | null> {
   const client = getAdminSupabaseClient(event)
 
   const bearerId = await userIdFromBearer(event, client)
@@ -32,21 +37,7 @@ export async function getAuthenticatedUserId(event: H3Event, fallbackId?: string
     // cookie gagal dibaca
   }
 
-  if (fallbackId && typeof fallbackId === 'string' && fallbackId.length > 10) {
-    const { data: profile } = await client
-      .from('profiles')
-      .select('id')
-      .eq('id', fallbackId)
-      .maybeSingle()
-    if (profile?.id) return profile.id
-  }
-
   return null
-}
-
-function isAdminEmail(email: string | null | undefined) {
-  const normalized = (email || '').toLowerCase().trim()
-  return normalized === 'admin@mioacademy.com' || normalized.startsWith('admin@')
 }
 
 async function resolveAuthUser(event: H3Event, client: ReturnType<typeof getAdminSupabaseClient>) {
@@ -70,11 +61,14 @@ async function resolveAuthUser(event: H3Event, client: ReturnType<typeof getAdmi
   }
 }
 
-function callerIsAdmin(authUser: any, profile: { role?: string | null; email?: string | null } | null) {
+/**
+ * user_metadata dan alamat email bisa diatur sendiri oleh pengguna, jadi tidak dipakai.
+ * app_metadata hanya bisa diubah lewat kunci server.
+ */
+function callerIsAdmin(authUser: any, profile: { role?: string | null } | null) {
   const role = String(profile?.role || '').toUpperCase()
-  const metaRole = String(authUser?.user_metadata?.role || authUser?.app_metadata?.role || '').toUpperCase()
-  const autoAdmin = isAdminEmail(profile?.email) || isAdminEmail(authUser?.email)
-  return role === 'ADMIN' || role === 'SUPER_ADMIN' || metaRole === 'ADMIN' || metaRole === 'SUPER_ADMIN' || autoAdmin
+  const appRole = String(authUser?.app_metadata?.role || '').toUpperCase()
+  return role === 'ADMIN' || role === 'SUPER_ADMIN' || appRole === 'ADMIN' || appRole === 'SUPER_ADMIN'
 }
 
 async function syncAdminRole(
@@ -91,12 +85,11 @@ async function syncAdminRole(
 /**
  * Pastikan pemanggil adalah admin.
  * ID diambil dari cookie (id atau sub) atau token, sama seperti menu instruktur.
- * Email admin@ juga diakui, supaya sama dengan tampilan sidebar.
  */
-export async function requireAdmin(event: H3Event, fallbackId?: string | null): Promise<{ userId: string }> {
+export async function requireAdmin(event: H3Event): Promise<{ userId: string }> {
   const client = getAdminSupabaseClient(event)
   const authUser = await resolveAuthUser(event, client)
-  const userId = authUser?.id || authUser?.sub || await getAuthenticatedUserId(event, fallbackId)
+  const userId = authUser?.id || authUser?.sub || await getAuthenticatedUserId(event)
   if (!userId) {
     throw createError({ statusCode: 401, statusMessage: 'Silakan masuk.' })
   }
@@ -119,10 +112,10 @@ export async function requireAdmin(event: H3Event, fallbackId?: string | null): 
  * Admin (sama seperti menu) atau pemilik kursus boleh mengubah isi kursus.
  * Penulisan memakai kunci server, jadi aturan tabel quizzes tidak menolak admin.
  */
-export async function assertCanManageCourse(event: H3Event, courseId: string, fallbackId?: string | null) {
+export async function assertCanManageCourse(event: H3Event, courseId: string) {
   const client = getAdminSupabaseClient(event)
   const authUser = await resolveAuthUser(event, client)
-  const userId = authUser?.id || authUser?.sub || await getAuthenticatedUserId(event, fallbackId)
+  const userId = authUser?.id || authUser?.sub || await getAuthenticatedUserId(event)
   if (!userId) {
     throw createError({ statusCode: 401, statusMessage: 'Silakan masuk.' })
   }

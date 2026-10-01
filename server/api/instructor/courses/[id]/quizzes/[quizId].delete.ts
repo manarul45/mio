@@ -7,8 +7,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Kursus dan latihan wajib dipilih.' })
   }
 
-  const query = getQuery(event)
-  const { client } = await assertCanManageCourse(event, courseId, query.user_id as string)
+  const { client } = await assertCanManageCourse(event, courseId)
 
   const { data: quiz, error: quizError } = await client
     .from('quizzes')

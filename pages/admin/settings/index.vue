@@ -15,7 +15,6 @@ import {
 
 definePageMeta({
     layout: 'dashboard',
-    middleware: ['admin'],
 });
 
 const supabase = useSupabaseClient();

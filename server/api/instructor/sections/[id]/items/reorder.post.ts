@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Modul tidak ditemukan' })
   }
 
-  const { client } = await assertCanManageCourse(event, String(section.course_id), body?.instructor_id)
+  const { client } = await assertCanManageCourse(event, String(section.course_id))
   const items: Array<{ id: number, type: 'lesson' | 'quiz' }> = body?.items || []
 
   if (!Array.isArray(items) || items.length === 0) {

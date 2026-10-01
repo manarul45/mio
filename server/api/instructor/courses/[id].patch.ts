@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const client = getAdminSupabaseClient(event)
 
-  const instructorId = await getAuthenticatedUserId(event, body?.instructor_id)
+  const instructorId = await getAuthenticatedUserId(event)
   if (!instructorId) {
     throw createError({ statusCode: 401, statusMessage: 'Harap login terlebih dahulu' })
   }

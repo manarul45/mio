@@ -40,12 +40,91 @@ const isEditModalOpen = ref(false);
 const isBulkModalOpen = ref(false);
 const selectedUser = ref<any>(null);
 
-const singleForm = ref({
+const emptySingleForm = () => ({
     name: '',
     email: '',
     password: '',
     role: 'STUDENT',
+    whatsapp_number: '',
+    course_ids: [] as number[],
 });
+const singleForm = ref(emptySingleForm());
+const isSubmittingSingle = ref(false);
+
+const courseOptions = ref<any[]>([]);
+const courseSearch = ref('');
+const isEnrollModalOpen = ref(false);
+const enrollUser = ref<any>(null);
+const enrollCourseIds = ref<number[]>([]);
+const enrollProgress = ref<Record<number, number>>({});
+const loadingEnrollments = ref(false);
+const isSavingEnrollments = ref(false);
+
+const filteredCourseOptions = computed(() => {
+    const q = courseSearch.value.toLowerCase().trim();
+    return q ? courseOptions.value.filter(c => c.title?.toLowerCase().includes(q)) : courseOptions.value;
+});
+
+const loadCourseOptions = async () => {
+    if (courseOptions.value.length) return;
+    try {
+        const res: any = await $fetch('/api/admin/course-options');
+        courseOptions.value = res.courses || [];
+    } catch (err: any) {
+        swal.toastError(err.data?.statusMessage || 'Gagal memuat daftar kursus');
+    }
+};
+
+const openAddManual = () => {
+    singleForm.value = emptySingleForm();
+    courseSearch.value = '';
+    isAddManualOpen.value = true;
+    loadCourseOptions();
+};
+
+const openEnrollModal = async (u: any) => {
+    enrollUser.value = u;
+    enrollCourseIds.value = [];
+    enrollProgress.value = {};
+    courseSearch.value = '';
+    isEnrollModalOpen.value = true;
+    loadingEnrollments.value = true;
+    try {
+        const [, res]: any = await Promise.all([
+            loadCourseOptions(),
+            $fetch(`/api/admin/users/${u.id}/enrollments`),
+        ]);
+        const active = (res.enrollments || []).filter((e: any) => e.status === 'active');
+        enrollCourseIds.value = active.map((e: any) => Number(e.course_id));
+        enrollProgress.value = Object.fromEntries(active.map((e: any) => [Number(e.course_id), e.progress_percentage || 0]));
+    } catch (err: any) {
+        swal.toastError(err.data?.statusMessage || 'Gagal memuat kursus pengguna');
+    } finally {
+        loadingEnrollments.value = false;
+    }
+};
+
+const saveEnrollments = async () => {
+    if (!enrollUser.value) return;
+    isSavingEnrollments.value = true;
+    try {
+        const res: any = await $fetch(`/api/admin/users/${enrollUser.value.id}/enrollments`, {
+            method: 'POST',
+            body: { course_ids: enrollCourseIds.value },
+        });
+        swal.toastSuccess(`Akses kursus diperbarui: ${res.activated_count} ditambahkan, ${res.revoked_count} dicabut.`);
+        isEnrollModalOpen.value = false;
+    } catch (err: any) {
+        swal.toastError(err.data?.statusMessage || 'Gagal menyimpan akses kursus');
+    } finally {
+        isSavingEnrollments.value = false;
+    }
+};
+
+const escapeHtml = (text: string) =>
+    String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));
+
+const courseStatusLabel = (status: string) => (status === 'published' ? '' : status);
 
 const editForm = ref({
     id: '',
@@ -129,41 +208,41 @@ const saveEditUser = async () => {
 };
 
 const createUser = async () => {
-    if (!singleForm.value.email || !singleForm.value.password) {
-        swal.toastError('Email dan password wajib diisi.');
+    if (!singleForm.value.name || !singleForm.value.email || !singleForm.value.password) {
+        swal.toastError('Nama, email, dan kata sandi wajib diisi.');
         return;
     }
 
+    isSubmittingSingle.value = true;
     try {
-        const { data, error } = await supabase.auth.signUp({
-            email: singleForm.value.email,
-            password: singleForm.value.password,
-            options: {
-                data: {
-                    name: singleForm.value.name,
-                    role: singleForm.value.role,
-                }
-            }
+        const res: any = await $fetch('/api/admin/users', {
+            method: 'POST',
+            body: singleForm.value,
         });
 
-        if (error) throw error;
-
-        // Also upsert to profiles
-        if (data.user) {
-            await supabase.from('profiles').upsert({
-                id: data.user.id,
-                name: singleForm.value.name,
-                email: singleForm.value.email,
-                role: singleForm.value.role,
-            });
-        }
-
-        swal.toastSuccess('Pengguna baru berhasil didaftarkan!');
         isAddManualOpen.value = false;
-        singleForm.value = { name: '', email: '', password: '', role: 'STUDENT' };
         loadUsers();
+
+        const waBtnHtml = res.whatsapp_url
+            ? `<div class="mt-4"><a href="${res.whatsapp_url}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition">Kirim Info Login via WhatsApp &rarr;</a></div>`
+            : '<p class="text-slate-500 text-[11px]">Nomor WhatsApp tidak diisi, silakan sampaikan info login secara manual.</p>';
+
+        swal.fireCustom({
+            icon: 'success',
+            title: 'Pengguna Berhasil Ditambahkan!',
+            html: `
+                <div class="text-left text-xs space-y-2">
+                    <p>Akun: <strong>${escapeHtml(res.user_name)}</strong> (${escapeHtml(res.user_email)})</p>
+                    <p>Didaftarkan ke <strong>${res.enrolled_count}</strong> kursus.</p>
+                    ${waBtnHtml}
+                </div>
+            `,
+            confirmButtonText: 'Tutup',
+        });
     } catch (err: any) {
-        swal.toastError(err.message || 'Gagal mendaftarkan pengguna');
+        swal.toastError(err.data?.statusMessage || err.message || 'Gagal mendaftarkan pengguna');
+    } finally {
+        isSubmittingSingle.value = false;
     }
 };
 
@@ -215,9 +294,9 @@ const handleResetPassword = async (u: any) => {
             title: 'Password Berhasil Direset!',
             html: `
                 <div class="text-left text-xs space-y-2">
-                    <p>Akun: <strong>${res.user_name}</strong> (${res.user_email})</p>
+                    <p>Akun: <strong>${escapeHtml(res.user_name)}</strong> (${escapeHtml(res.user_email)})</p>
                     <div class="p-3 bg-slate-100 rounded-xl font-mono text-sm text-purple-700 font-bold select-all">
-                        ${res.new_password}
+                        ${escapeHtml(res.new_password)}
                     </div>
                     <p class="text-slate-500 text-[11px]">Silakan salin password di atas atau kirim langsung ke WhatsApp pengguna:</p>
                     ${waBtnHtml}
@@ -233,7 +312,7 @@ const handleResetPassword = async (u: any) => {
 const deleteUser = async (u: any) => {
     const isConfirmed = await swal.confirmDialog({
         title: 'Hapus Pengguna?',
-        text: `Akun "${u.name}" (${u.email}) akan dihapus dari sistem.`,
+        text: `Akun "${u.name}" (${u.email}) beserta progres belajar dan sertifikatnya akan dihapus permanen.`,
         confirmButtonText: 'Ya, Hapus',
         confirmButtonColor: '#ef4444',
     });
@@ -241,11 +320,11 @@ const deleteUser = async (u: any) => {
     if (!isConfirmed) return;
 
     try {
-        await supabase.from('profiles').delete().eq('id', u.id);
+        await $fetch(`/api/admin/users/${u.id}`, { method: 'DELETE' });
         swal.toastSuccess('Pengguna berhasil dihapus.');
         loadUsers();
     } catch (err: any) {
-        swal.toastError(err.message || 'Gagal menghapus pengguna.');
+        swal.fireError('Tidak Bisa Dihapus', err.data?.statusMessage || err.message || 'Gagal menghapus pengguna.');
     }
 };
 
@@ -278,7 +357,7 @@ onMounted(() => {
                     <UploadCloud class="mr-1.5 h-4 w-4" />
                     <span>Import Massal</span>
                 </Button>
-                <Button variant="primary" size="md" @click="isAddManualOpen = true">
+                <Button variant="primary" size="md" @click="openAddManual">
                     <UserPlus class="mr-1.5 h-4 w-4" />
                     <span>Tambah Pengguna</span>
                 </Button>
@@ -406,6 +485,15 @@ onMounted(() => {
                                     <div class="flex items-center justify-end gap-1.5">
                                         <button
                                             type="button"
+                                            @click="openEnrollModal(u)"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                            title="Atur kursus yang bisa diakses"
+                                        >
+                                            <BookOpen class="h-3 w-3" />
+                                            <span>Kursus</span>
+                                        </button>
+                                        <button
+                                            type="button"
                                             @click="openEditModal(u)"
                                             class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
                                             title="Ubah peran"
@@ -471,10 +559,86 @@ onMounted(() => {
                     <option value="INSTRUCTOR">INSTRUCTOR (Instruktur Kursus)</option>
                     <option value="ADMIN">ADMIN (Administrator Platform)</option>
                 </Select>
+                <Input
+                    v-model="singleForm.whatsapp_number"
+                    label="Nomor WhatsApp (opsional)"
+                    placeholder="08123456789"
+                />
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Daftarkan ke Kursus (opsional)
+                    </label>
+                    <input
+                        v-model="courseSearch"
+                        type="text"
+                        placeholder="Cari judul kursus..."
+                        class="w-full mb-2 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-900 focus:border-indigo-600 focus:outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                    />
+                    <div class="max-h-44 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+                        <label
+                            v-for="c in filteredCourseOptions"
+                            :key="c.id"
+                            class="flex items-center gap-2.5 px-3 py-2 text-xs cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                        >
+                            <input v-model="singleForm.course_ids" type="checkbox" :value="c.id" class="rounded" />
+                            <span class="flex-1 text-slate-800 dark:text-slate-200">{{ c.title }}</span>
+                            <Badge v-if="courseStatusLabel(c.status)" variant="gray" size="sm">{{ c.status }}</Badge>
+                        </label>
+                        <p v-if="!filteredCourseOptions.length" class="px-3 py-3 text-xs text-slate-400">Tidak ada kursus.</p>
+                    </div>
+                    <p class="mt-1 text-[11px] text-slate-400">{{ singleForm.course_ids.length }} kursus dipilih</p>
+                </div>
             </div>
             <template #footer>
                 <Button variant="secondary" size="sm" @click="isAddManualOpen = false">Batal</Button>
-                <Button variant="primary" size="sm" @click="createUser">Daftarkan Akun</Button>
+                <Button variant="primary" size="sm" :disabled="isSubmittingSingle" @click="createUser">
+                    {{ isSubmittingSingle ? 'Mendaftarkan...' : 'Daftarkan Akun' }}
+                </Button>
+            </template>
+        </Modal>
+
+        <!-- MODAL: ATUR KURSUS PENGGUNA -->
+        <Modal :show="isEnrollModalOpen" title="Atur Akses Kursus" @close="isEnrollModalOpen = false">
+            <div class="space-y-3">
+                <p class="text-xs text-slate-600 dark:text-slate-300">
+                    Pengguna: <strong>{{ enrollUser?.name }}</strong> ({{ enrollUser?.email }})
+                </p>
+                <p class="text-[11px] text-slate-400">
+                    Centang kursus yang boleh diakses. Menghapus centang akan mencabut akses, tetapi progres belajarnya tetap tersimpan.
+                </p>
+                <div v-if="loadingEnrollments" class="py-6">
+                    <LoadingState text="Memuat kursus pengguna..." />
+                </div>
+                <template v-else>
+                    <input
+                        v-model="courseSearch"
+                        type="text"
+                        placeholder="Cari judul kursus..."
+                        class="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-900 focus:border-indigo-600 focus:outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                    />
+                    <div class="max-h-72 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+                        <label
+                            v-for="c in filteredCourseOptions"
+                            :key="c.id"
+                            class="flex items-center gap-2.5 px-3 py-2 text-xs cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                        >
+                            <input v-model="enrollCourseIds" type="checkbox" :value="c.id" class="rounded" />
+                            <span class="flex-1 text-slate-800 dark:text-slate-200">{{ c.title }}</span>
+                            <span v-if="enrollProgress[c.id] !== undefined" class="text-[10px] text-emerald-600 font-semibold">
+                                Progres {{ enrollProgress[c.id] }}%
+                            </span>
+                            <Badge v-if="courseStatusLabel(c.status)" variant="gray" size="sm">{{ c.status }}</Badge>
+                        </label>
+                        <p v-if="!filteredCourseOptions.length" class="px-3 py-3 text-xs text-slate-400">Tidak ada kursus.</p>
+                    </div>
+                    <p class="text-[11px] text-slate-400">{{ enrollCourseIds.length }} kursus dicentang</p>
+                </template>
+            </div>
+            <template #footer>
+                <Button variant="secondary" size="sm" @click="isEnrollModalOpen = false">Batal</Button>
+                <Button variant="primary" size="sm" :disabled="isSavingEnrollments || loadingEnrollments" @click="saveEnrollments">
+                    {{ isSavingEnrollments ? 'Menyimpan...' : 'Simpan Akses Kursus' }}
+                </Button>
             </template>
         </Modal>
 

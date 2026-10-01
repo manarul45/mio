@@ -76,7 +76,7 @@ const saveProfile = async () => {
                 avatar_url: profileForm.value.avatar_url.trim() || null,
                 updated_at: new Date().toISOString(),
             })
-            .eq('id', user.value.id);
+            .eq('id', (user.value.id || (user.value as any).sub));
 
         if (error) throw error;
 
@@ -128,7 +128,7 @@ const deleteAccount = async () => {
 
     try {
         if (user.value) {
-            await supabase.from('profiles').delete().eq('id', user.value.id);
+            await supabase.from('profiles').delete().eq('id', (user.value.id || (user.value as any).sub));
         }
         await logout();
     } catch (err: any) {

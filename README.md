@@ -71,9 +71,10 @@ Sistem ini memiliki middleware otorisasi berbasis peran (*Role-Based Access Cont
 - `STUDENT`: Mengakses kelas yang dibeli, menonton video, mengerjakan kuis, klaim sertifikat.
 
 ### Cara Membuat Akun Admin:
-1. Buka [http://localhost:3000/register](http://localhost:3000/register) dan daftarkan akun baru dengan email admin (misal: `admin@mioacademy.com` atau email Anda).
-2. Sistem secara otomatis mengenali email berawalan `admin@` atau `admin@mioacademy.com` dan memberikan hak akses Admin.
-3. Atau, jalankan query berikut di **Supabase SQL Editor**:
+Pendaftaran publik selalu menjadi `STUDENT`. Alamat email (termasuk `admin@...`) tidak memberi hak admin.
+
+1. Jalankan skrip: `node scripts/create-admin.mjs email-anda@domain.com PasswordKuat123! "Nama Admin"`
+2. Atau, daftar biasa di [http://localhost:3000/register](http://localhost:3000/register), lalu jalankan query berikut di **Supabase SQL Editor**:
    ```sql
    UPDATE public.profiles SET role = 'ADMIN' WHERE email = 'email-anda@domain.com';
    ```

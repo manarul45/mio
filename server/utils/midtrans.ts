@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { cancelPendingOrder, fulfillPaidOrder } from '~/server/utils/orderFulfillment'
 
 export function getMidtransConfig() {
   const config = useRuntimeConfig()
@@ -66,40 +67,10 @@ export async function applyMidtransPayment(client: SupabaseClient, body: Record<
   if (isPaidStatus(body)) {
     if (order.status !== 'paid') {
       const gatewayRef = String(body.transaction_id || '').slice(0, 100)
-      await client
-        .from('orders')
-        .update({
-          status: 'paid',
-          paid_at: new Date().toISOString(),
-          payment_method: String(body.payment_type || 'midtrans').slice(0, 50),
-          payment_gateway_ref: gatewayRef || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', order.id)
-
-      const { data: items } = await client
-        .from('order_items')
-        .select('course_id')
-        .eq('order_id', order.id)
-
-      for (const item of items || []) {
-        await client.from('enrollments').upsert({
-          user_id: order.user_id,
-          course_id: item.course_id,
-          order_id: order.id,
-          status: 'active',
-          enrolled_at: new Date().toISOString(),
-        }, { onConflict: 'user_id,course_id' })
-      }
-
-      await client
-        .from('affiliate_commissions')
-        .update({
-          status: 'approved',
-          approved_at: new Date().toISOString(),
-        })
-        .eq('order_id', order.id)
-        .eq('status', 'pending')
+      await fulfillPaidOrder(client, order, {
+        payment_method: String(body.payment_type || 'midtrans').slice(0, 50),
+        payment_gateway_ref: gatewayRef || null,
+      })
     }
 
     return { found: true, paid: true }
@@ -107,13 +78,7 @@ export async function applyMidtransPayment(client: SupabaseClient, body: Record<
 
   const isCancelled = ['expire', 'cancel', 'deny'].includes(body.transaction_status)
   if (isCancelled && order.status === 'pending' && order.payment_method !== 'bank_transfer') {
-    await client
-      .from('orders')
-      .update({
-        status: body.transaction_status === 'deny' ? 'failed' : 'cancelled',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', order.id)
+    await cancelPendingOrder(client, order.id, body.transaction_status === 'deny' ? 'failed' : 'cancelled')
   }
 
   return { found: true, paid: false }

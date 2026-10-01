@@ -35,7 +35,7 @@ const displayName = computed(() => {
 });
 
 const userRole = computed(() => {
-    return profile.value?.role || user.value?.user_metadata?.role || (isAdmin.value ? 'ADMIN' : (isInstructor.value ? 'INSTRUCTOR' : 'STUDENT'));
+    return profile.value?.role || (isAdmin.value ? 'ADMIN' : (isInstructor.value ? 'INSTRUCTOR' : 'STUDENT'));
 });
 
 const userInitial = computed(() => {

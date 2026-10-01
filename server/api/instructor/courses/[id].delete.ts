@@ -7,10 +7,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'ID kursus diperlukan' })
   }
 
-  const query = getQuery(event)
   const client = getAdminSupabaseClient(event)
 
-  const instructorId = await getAuthenticatedUserId(event, query?.user_id as string)
+  const instructorId = await getAuthenticatedUserId(event)
 
   // Check existing course
   const { data: existingCourse } = await client

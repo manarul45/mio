@@ -50,7 +50,7 @@ const loadAnalytics = async () => {
             `);
 
         if (!isAdmin.value) {
-            query = query.eq('instructor_id', user.value.id);
+            query = query.eq('instructor_id', (user.value.id || (user.value as any).sub));
         }
 
         const { data, error } = await query;

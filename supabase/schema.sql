@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- Trigger to automatically populate public.profiles when a new user registers in Supabase Auth.
 -- Peran yang tidak dikenal, nomor WhatsApp terlalu panjang, atau nama/email kosong
 -- tidak boleh menggagalkan pembuatan akun (pesan: Database error saving new user).
+-- Peran hanya dibaca dari app_metadata (diisi lewat kunci server), bukan dari
+-- user_metadata yang bisa dikirim siapa pun saat mendaftar.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -75,7 +77,7 @@ SET search_path = public
 AS $$
 DECLARE
     meta jsonb := COALESCE(NEW.raw_user_meta_data, '{}'::jsonb);
-    raw_role text := upper(btrim(COALESCE(meta->>'role', '')));
+    raw_role text := upper(btrim(COALESCE(NEW.raw_app_meta_data->>'role', '')));
     safe_role public.user_role := 'STUDENT';
     safe_email text;
     safe_name text;
@@ -341,6 +343,7 @@ CREATE TABLE IF NOT EXISTS public.enrollments (
     course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
     order_id BIGINT REFERENCES public.orders(id) ON DELETE SET NULL,
     status enrollment_status NOT NULL DEFAULT 'active',
+    progress_percentage SMALLINT NOT NULL DEFAULT 0 CHECK (progress_percentage BETWEEN 0 AND 100),
     enrolled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -503,7 +506,7 @@ ALTER TABLE public.affiliate_withdrawals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.landing_pages ENABLE ROW LEVEL SECURITY;
 
 -- Helper function to check if current user is ADMIN or SUPER_ADMIN.
--- Email admin@ dan peran di token ikut dihitung, sama seperti menu admin di layar.
+-- user_metadata dan email bisa diatur sendiri oleh pengguna, jadi tidak dipakai.
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -512,22 +515,43 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    jwt_email TEXT := lower(COALESCE(auth.jwt() ->> 'email', ''));
-    jwt_role TEXT := upper(COALESCE(
-        auth.jwt() -> 'app_metadata' ->> 'role',
-        auth.jwt() -> 'user_metadata' ->> 'role',
-        ''
-    ));
+    jwt_role TEXT := upper(COALESCE(auth.jwt() -> 'app_metadata' ->> 'role', ''));
 BEGIN
     RETURN EXISTS (
         SELECT 1 FROM public.profiles
         WHERE id = auth.uid() AND role IN ('ADMIN', 'SUPER_ADMIN')
     )
-    OR jwt_role IN ('ADMIN', 'SUPER_ADMIN')
-    OR jwt_email = 'admin@mioacademy.com'
-    OR jwt_email LIKE 'admin@%';
+    OR jwt_role IN ('ADMIN', 'SUPER_ADMIN');
 END;
 $$;
+
+-- Pengguna biasa tidak boleh mengubah peran (role) dirinya sendiri.
+-- Tanpa pengguna login (kunci server, SQL Editor, pendaftaran akun) tetap boleh.
+CREATE OR REPLACE FUNCTION public.protect_profile_role()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF auth.uid() IS NULL OR public.is_admin() THEN
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        NEW.role := 'STUDENT';
+    ELSIF NEW.role IS DISTINCT FROM OLD.role THEN
+        NEW.role := OLD.role;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS protect_profile_role ON public.profiles;
+CREATE TRIGGER protect_profile_role
+    BEFORE INSERT OR UPDATE ON public.profiles
+    FOR EACH ROW EXECUTE FUNCTION public.protect_profile_role();
 
 -- Baca kepemilikan kursus tanpa terhalang aturan baca tabel courses.
 CREATE OR REPLACE FUNCTION public.can_manage_section(target_section_id BIGINT)
@@ -667,8 +691,10 @@ CREATE POLICY "Users read own enrollments" ON public.enrollments FOR SELECT USIN
 CREATE POLICY "Admin manage enrollments" ON public.enrollments FOR ALL USING (public.is_admin());
 
 -- Lesson Progress & Quiz Attempts
-CREATE POLICY "Users manage own progress" ON public.lesson_progress FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "Users manage own quiz attempts" ON public.quiz_attempts FOR ALL USING (auth.uid() = user_id);
+-- Siswa hanya membaca; penulisan lewat /api/learning/* (kunci server) supaya progres
+-- dan kelulusan kuis tidak bisa dipalsukan untuk mendapat sertifikat.
+CREATE POLICY "Users read own progress" ON public.lesson_progress FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
+CREATE POLICY "Users read own quiz attempts" ON public.quiz_attempts FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
 DROP POLICY IF EXISTS "Staff delete quiz attempts" ON public.quiz_attempts;
 CREATE POLICY "Staff delete quiz attempts" ON public.quiz_attempts
     FOR DELETE

@@ -74,6 +74,18 @@ export function useSwal() {
     })
   }
 
+  const fireCustom = (options: Record<string, any>) => {
+    return Swal.fire({
+      confirmButtonColor: '#4f46e5',
+      ...options,
+      customClass: {
+        popup: 'rounded-3xl shadow-2xl font-sans dark:bg-slate-900 dark:text-white',
+        confirmButton: 'px-5 py-2.5 rounded-xl font-bold text-sm',
+        ...(options.customClass || {}),
+      },
+    })
+  }
+
   const confirmDialog = async ({
     title = 'Apakah Anda yakin?',
     text = 'Tindakan ini tidak dapat dibatalkan.',
@@ -120,6 +132,7 @@ export function useSwal() {
     toastInfo,
     fireSuccess,
     fireError,
+    fireCustom,
     error: fireError,
     confirmDialog,
     confirm,

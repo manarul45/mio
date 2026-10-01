@@ -42,7 +42,7 @@ const { data: enrollment } = await useAsyncData(`enrollment_check_${slug}`, asyn
   const { data } = await supabase
     .from('enrollments')
     .select('*')
-    .eq('user_id', user.value.id)
+    .eq('user_id', (user.value.id || (user.value as any).sub))
     .eq('course_id', course.value.id)
     .eq('status', 'active')
     .maybeSingle()

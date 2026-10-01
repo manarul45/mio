@@ -27,6 +27,7 @@ import {
     HelpCircle,
     Image as ImageIcon,
     Music,
+    Lock,
 } from 'lucide-vue-next';
 
 definePageMeta({
@@ -35,11 +36,11 @@ definePageMeta({
 
 const route = useRoute();
 const slug = route.params.slug as string;
-const { user } = useAuthProfile();
 const supabase = useSupabaseClient();
 const toast = useToast();
 
 const loading = ref(true);
+const accessError = ref<{ status: number; message: string } | null>(null);
 const course = ref<any>(null);
 const activeLessonState = ref<any>(null);
 const activeQuiz = ref<any>(null);
@@ -61,6 +62,28 @@ const isSubmittingReply = ref<Record<number, boolean>>({});
 // Quiz solver state
 const selectedQuizAnswers = ref<Record<number, number>>({});
 const quizResult = ref<any>(null);
+const loadingQuizAttempt = ref(false);
+const quizTopRef = ref<HTMLElement | null>(null);
+
+const toQuizResult = (res: any) => ({
+    score: res.score,
+    passed: res.passed,
+    correctCount: res.correct_count,
+    totalQuestions: res.total_questions,
+    passingScore: res.passing_score,
+    review: Object.fromEntries((res.review || []).map((r: any) => [r.question_id, r])),
+});
+
+const getQuestionReview = (questionId: number) => quizResult.value?.review?.[questionId] || null;
+
+const getOptionState = (questionId: number, optionId: number) => {
+    const review = getQuestionReview(questionId);
+    if (!review) return null;
+    const isSelected = review.selected_option_id === optionId;
+    if (isSelected) return review.is_correct ? 'selected-correct' : 'selected-wrong';
+    if (review.correct_option_ids?.includes(optionId)) return 'answer-key';
+    return null;
+};
 
 const getSortedSectionItems = (section: any) => {
     const lessons = (section?.lessons || []).map((l: any) => ({ ...l, item_type: 'lesson' }));
@@ -160,6 +183,10 @@ const toggleResolve = async (disc: any) => {
 };
 
 const selectLesson = (lesson: any) => {
+    if (lesson.is_locked) {
+        toast.info(lesson.lock_reason || 'Materi ini belum terbuka.');
+        return;
+    }
     activeQuiz.value = null;
     quizResult.value = null;
     activeLessonState.value = lesson;
@@ -167,11 +194,41 @@ const selectLesson = (lesson: any) => {
     loadDiscussions(lesson.id);
 };
 
-const selectQuiz = (quiz: any) => {
+const selectQuiz = async (quiz: any) => {
+    if (quiz.is_locked) {
+        toast.info(quiz.lock_reason || 'Latihan ini belum terbuka.');
+        return;
+    }
     activeLessonState.value = null;
     activeQuiz.value = quiz;
     quizResult.value = null;
     selectedQuizAnswers.value = {};
+
+    if (!course.value?.viewer?.is_enrolled) return;
+
+    loadingQuizAttempt.value = true;
+    try {
+        const res: any = await $fetch('/api/learning/quiz-attempt', {
+            headers: await authHeaders(),
+            query: { course_id: course.value.id, quiz_id: quiz.id },
+        });
+        if (activeQuiz.value?.id !== quiz.id || !res.attempt) return;
+
+        selectedQuizAnswers.value = Object.fromEntries(
+            Object.entries(res.attempt.answers || {}).map(([qid, optId]) => [Number(qid), Number(optId)]),
+        );
+        quizResult.value = toQuizResult(res.attempt);
+    } catch (err) {
+        console.error('Failed to load last quiz attempt:', err);
+    } finally {
+        loadingQuizAttempt.value = false;
+    }
+};
+
+const retakeQuiz = () => {
+    quizResult.value = null;
+    selectedQuizAnswers.value = {};
+    quizTopRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 const advanceToNextItem = () => {
@@ -190,48 +247,54 @@ const advanceToNextItem = () => {
     }
 };
 
+const openItem = (item: any) => {
+    if (item.item_type === 'lesson') selectLesson(item);
+    else selectQuiz(item);
+};
+
+const authHeaders = async (): Promise<Record<string, string>> => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const fetchCourse = async () => {
+    const data = await $fetch<any>(`/api/learning/${slug}`, { headers: await authHeaders() });
+    course.value = data;
+    completedLessonIds.value = data.viewer?.completed_lesson_ids || [];
+    passedQuizIds.value = data.viewer?.passed_quiz_ids || [];
+    return data;
+};
+
+/** Ambil ulang isi kursus setelah progres berubah, supaya materi yang baru terbuka ikut dimuat. */
+const refreshCourse = async () => {
+    try {
+        await fetchCourse();
+    } catch (err) {
+        console.error('Failed to refresh classroom course:', err);
+    }
+};
+
 const loadClassroomData = async () => {
     loading.value = true;
+    accessError.value = null;
     try {
-        const data = await $fetch<any>(`/api/learning/${slug}`);
-        course.value = data;
+        await fetchCourse();
 
-        const sortedSections = data.sections || [];
-        // Set default active item (lesson or quiz)
-        if (sortedSections.length > 0) {
-            const firstItems = getSortedSectionItems(sortedSections[0]);
-            if (firstItems.length > 0) {
-                if (firstItems[0].item_type === 'lesson') {
-                    activeLessonState.value = firstItems[0];
-                } else if (firstItems[0].item_type === 'quiz') {
-                    activeQuiz.value = firstItems[0];
-                }
-            }
+        // Lanjutkan dari materi pertama yang belum selesai dan sudah terbuka.
+        const items = allCurriculumItems.value.filter((item: any) => !item.is_locked);
+        const isDone = (item: any) => item.item_type === 'lesson' ? isLessonCompleted(item.id) : isQuizPassed(item.id);
+        const startItem = items.find((item: any) => !isDone(item)) || items[0];
+        if (startItem) openItem(startItem);
+    } catch (err: any) {
+        const status = err?.statusCode || err?.response?.status || 500;
+        if (status === 401) {
+            return navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`);
         }
-
-        // Load user progress
-        if (user.value) {
-            const { data: progressData } = await supabase
-                .from('lesson_progress')
-                .select('lesson_id')
-                .eq('user_id', user.value.id)
-                .eq('is_completed', true);
-
-            if (progressData) {
-                completedLessonIds.value = progressData.map((p: any) => p.lesson_id);
-            }
-
-            const { data: quizAttemptsData } = await supabase
-                .from('quiz_attempts')
-                .select('quiz_id')
-                .eq('user_id', user.value.id)
-                .eq('passed', true);
-
-            if (quizAttemptsData) {
-                passedQuizIds.value = quizAttemptsData.map((a: any) => a.quiz_id);
-            }
-        }
-    } catch (err) {
+        accessError.value = {
+            status,
+            message: err?.data?.statusMessage || 'Ruang belajar gagal dimuat. Silakan coba lagi.',
+        };
         console.error('Failed to load classroom course:', err);
     } finally {
         loading.value = false;
@@ -239,97 +302,68 @@ const loadClassroomData = async () => {
 };
 
 const markLessonComplete = async () => {
-    if (!activeLessonState.value || !user.value) return;
+    if (!activeLessonState.value || !course.value) return;
+    const lessonId = activeLessonState.value.id;
+
+    if (!course.value.viewer?.is_enrolled) {
+        if (!completedLessonIds.value.includes(lessonId)) completedLessonIds.value.push(lessonId);
+        toast.info('Mode pratinjau: progres tidak disimpan.');
+        advanceToNextItem();
+        return;
+    }
+
     try {
-        const lessonId = activeLessonState.value.id;
-        await supabase
-            .from('lesson_progress')
-            .upsert({
-                user_id: user.value.id,
-                lesson_id: lessonId,
-                is_completed: true,
-                completed_at: new Date().toISOString(),
-            }, { onConflict: 'user_id,lesson_id' });
+        const res: any = await $fetch('/api/learning/complete-lesson', {
+            method: 'POST',
+            headers: await authHeaders(),
+            body: { course_id: course.value.id, lesson_id: lessonId },
+        });
 
         if (!completedLessonIds.value.includes(lessonId)) {
             completedLessonIds.value.push(lessonId);
         }
 
-        // Update enrollment progress
-        if (course.value) {
-            await supabase
-                .from('enrollments')
-                .update({
-                    progress_percentage: progressPercentage.value,
-                    completed_at: progressPercentage.value === 100 ? new Date().toISOString() : null,
-                })
-                .eq('user_id', user.value.id)
-                .eq('course_id', course.value.id);
-        }
-
-        toast.success('Pelajaran berhasil diselesaikan!');
+        toast.success(res.message || 'Pelajaran berhasil diselesaikan!');
+        await refreshCourse();
         advanceToNextItem();
     } catch (err: any) {
-        toast.error(err.message || 'Gagal menandai pelajaran');
+        toast.error(err?.data?.statusMessage || err.message || 'Gagal menandai pelajaran');
     }
 };
 
 const submitQuiz = async () => {
-    if (!activeQuiz.value) return;
-    const questions = activeQuiz.value.quiz_questions || [];
-    let correctCount = 0;
+    if (!activeQuiz.value || !course.value) return;
 
-    questions.forEach((q: any) => {
-        const selectedOptId = selectedQuizAnswers.value[q.id];
-        const correctOpt = (q.quiz_options || []).find((o: any) => o.is_correct);
-        if (correctOpt && correctOpt.id === selectedOptId) {
-            correctCount++;
+    if (!course.value.viewer?.is_enrolled) {
+        toast.info('Mode pratinjau: kuis hanya dinilai untuk peserta terdaftar.');
+        return;
+    }
+
+    try {
+        const res: any = await $fetch('/api/learning/submit-quiz', {
+            method: 'POST',
+            headers: await authHeaders(),
+            body: {
+                course_id: course.value.id,
+                quiz_id: activeQuiz.value.id,
+                answers: selectedQuizAnswers.value,
+            },
+        });
+
+        quizResult.value = toQuizResult(res);
+        quizTopRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        if (res.passed) {
+            if (!passedQuizIds.value.includes(activeQuiz.value.id)) {
+                passedQuizIds.value.push(activeQuiz.value.id);
+            }
+            toast.success(`Selamat! Anda lulus kuis dengan nilai ${res.score}%!`);
+            await refreshCourse();
+        } else {
+            toast.warning(`Nilai Anda ${res.score}%. Batas kelulusan adalah ${res.passing_score}%. Silakan ulangi lagi.`);
         }
-    });
-
-    const score = Math.round((correctCount / (questions.length || 1)) * 100);
-    const passed = score >= (activeQuiz.value.passing_score || 80);
-
-    quizResult.value = {
-        score,
-        passed,
-        correctCount,
-        totalQuestions: questions.length,
-    };
-
-    if (passed) {
-        if (!passedQuizIds.value.includes(activeQuiz.value.id)) {
-            passedQuizIds.value.push(activeQuiz.value.id);
-        }
-        if (user.value) {
-            try {
-                await supabase.from('quiz_attempts').insert({
-                    user_id: user.value.id,
-                    quiz_id: activeQuiz.value.id,
-                    score_percentage: score,
-                    passed: true,
-                    completed_at: new Date().toISOString(),
-                });
-            } catch {}
-        }
-
-        // Update enrollment progress
-        if (course.value && user.value) {
-            try {
-                await supabase
-                    .from('enrollments')
-                    .update({
-                        progress_percentage: progressPercentage.value,
-                        completed_at: progressPercentage.value === 100 ? new Date().toISOString() : null,
-                    })
-                    .eq('user_id', user.value.id)
-                    .eq('course_id', course.value.id);
-            } catch {}
-        }
-
-        toast.success(`Selamat! Anda lulus kuis dengan nilai ${score}%!`);
-    } else {
-        toast.warning(`Nilai Anda ${score}%. Batas kelulusan adalah ${activeQuiz.value.passing_score}%. Silakan ulangi lagi.`);
+    } catch (err: any) {
+        toast.error(err?.data?.statusMessage || err.message || 'Gagal mengirim jawaban kuis');
     }
 };
 
@@ -624,7 +658,7 @@ onMounted(() => {
 
                         <!-- QUIZ SOLVER VIEW -->
                         <template v-else-if="activeQuiz">
-                            <div class="p-8 rounded-3xl bg-slate-900 border border-slate-800 space-y-6">
+                            <div ref="quizTopRef" class="p-8 rounded-3xl bg-slate-900 border border-slate-800 space-y-6 scroll-mt-4">
                                 <div class="flex items-center justify-between border-b border-slate-800 pb-4">
                                     <div>
                                         <Badge variant="purple" size="sm">EVALUASI PEMAHAMAN</Badge>
@@ -637,6 +671,31 @@ onMounted(() => {
                                     </div>
                                 </div>
 
+                                <div v-if="loadingQuizAttempt" class="text-xs text-slate-400">Memuat jawaban terakhir Anda...</div>
+
+                                <!-- Quiz Result Summary -->
+                                <div v-if="quizResult" class="p-6 rounded-2xl border text-center space-y-3" :class="quizResult.passed ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200' : 'bg-rose-950/40 border-rose-800 text-rose-200'">
+                                    <p class="text-base font-black">
+                                        {{ quizResult.passed ? '🎉 Selamat! Anda Lulus Kuis' : '⚠️ Belum Memenuhi Passing Score' }}
+                                    </p>
+                                    <p class="text-3xl font-black">{{ quizResult.score }}</p>
+                                    <p class="text-sm">
+                                        {{ quizResult.correctCount }} dari {{ quizResult.totalQuestions }} soal benar
+                                        <span class="opacity-75">(batas lulus {{ quizResult.passingScore }})</span>
+                                    </p>
+                                    <p v-if="!quizResult.passed" class="text-xs opacity-80">
+                                        Soal yang salah ditandai merah. Kunci jawaban ditampilkan setelah Anda lulus.
+                                    </p>
+                                    <div class="pt-2 flex justify-center">
+                                        <Button v-if="quizResult.passed" type="button" variant="primary" size="md" @click="advanceToNextItem" class="shadow-lg shadow-indigo-500/20">
+                                            <span>Lanjut ke Materi Berikutnya &rarr;</span>
+                                        </Button>
+                                        <Button v-else type="button" variant="primary" size="md" @click="retakeQuiz">
+                                            <span>Ulangi Kuis</span>
+                                        </Button>
+                                    </div>
+                                </div>
+
                                 <!-- Questions List -->
                                 <div v-if="activeQuiz.quiz_questions && activeQuiz.quiz_questions.length > 0" class="space-y-6">
                                     <div
@@ -646,9 +705,14 @@ onMounted(() => {
                                     >
                                         <!-- Question Text & Multimedia Attachment -->
                                         <div class="space-y-3">
-                                            <p class="text-sm font-bold text-white">
-                                                {{ qIdx + 1 }}. {{ q.question_text || q.question }}
-                                            </p>
+                                            <div class="flex items-start justify-between gap-3">
+                                                <p class="text-sm font-bold text-white">
+                                                    {{ qIdx + 1 }}. {{ q.question_text || q.question }}
+                                                </p>
+                                                <Badge v-if="getQuestionReview(q.id)" :variant="getQuestionReview(q.id).is_correct ? 'success' : 'danger'" size="sm" class="shrink-0">
+                                                    {{ getQuestionReview(q.id).is_correct ? '✓ Benar' : '✗ Salah' }}
+                                                </Badge>
+                                            </div>
 
                                             <!-- Multimedia rendering (Image / Audio / Video) -->
                                             <div v-if="q.media_url" class="rounded-2xl overflow-hidden max-w-lg border border-slate-700 bg-black/40 p-2">
@@ -675,18 +739,29 @@ onMounted(() => {
                                             <label
                                                 v-for="opt in q.quiz_options"
                                                 :key="opt.id"
-                                                class="flex items-center gap-3 p-3 rounded-xl border border-slate-700 hover:bg-slate-700/50 cursor-pointer transition text-xs"
-                                                :class="{ 'border-indigo-500 bg-indigo-950/40 text-indigo-200': selectedQuizAnswers[q.id] === opt.id }"
+                                                class="flex items-center gap-3 p-3 rounded-xl border transition text-xs"
+                                                :class="[
+                                                    quizResult ? 'cursor-default' : 'cursor-pointer hover:bg-slate-700/50',
+                                                    getOptionState(q.id, opt.id) === 'selected-correct' ? 'border-emerald-500 bg-emerald-950/40 text-emerald-200'
+                                                        : getOptionState(q.id, opt.id) === 'selected-wrong' ? 'border-rose-500 bg-rose-950/40 text-rose-200'
+                                                        : getOptionState(q.id, opt.id) === 'answer-key' ? 'border-emerald-700 border-dashed text-emerald-300'
+                                                        : selectedQuizAnswers[q.id] === opt.id ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200'
+                                                        : 'border-slate-700',
+                                                ]"
                                             >
                                                 <input
                                                     type="radio"
                                                     :name="`question_${q.id}`"
                                                     :value="opt.id"
                                                     v-model="selectedQuizAnswers[q.id]"
+                                                    :disabled="!!quizResult"
                                                     class="text-indigo-600 focus:ring-0"
                                                 />
                                                 <img v-if="opt.media_url" :src="opt.media_url" alt="" class="h-10 w-10 object-cover rounded-lg border border-slate-600" />
-                                                <span>{{ opt.option_text }}</span>
+                                                <span class="flex-1">{{ opt.option_text }}</span>
+                                                <span v-if="getOptionState(q.id, opt.id) === 'selected-correct'" class="text-[10px] font-bold">Jawaban Anda ✓</span>
+                                                <span v-else-if="getOptionState(q.id, opt.id) === 'selected-wrong'" class="text-[10px] font-bold">Jawaban Anda ✗</span>
+                                                <span v-else-if="getOptionState(q.id, opt.id) === 'answer-key'" class="text-[10px] font-bold">Kunci Jawaban</span>
                                             </label>
                                         </div>
                                         <div v-else class="text-xs text-slate-500 italic pl-4">
@@ -703,30 +778,15 @@ onMounted(() => {
                                     Belum ada butir pertanyaan pada kuis evaluasi ini.
                                 </div>
 
-                                <!-- Quiz Result -->
-                                <div v-if="quizResult" class="p-6 rounded-2xl border text-center space-y-3" :class="quizResult.passed ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200' : 'bg-rose-950/40 border-rose-800 text-rose-200'">
-                                    <p class="text-base font-black">
-                                        {{ quizResult.passed ? '🎉 Selamat! Anda Lulus Kuis' : '⚠️ Belum Memenuhi Passing Score' }}
-                                    </p>
-                                    <p class="text-sm">
-                                        Nilai Anda: <strong>{{ quizResult.score }}%</strong> ({{ quizResult.correctCount }}/{{ quizResult.totalQuestions }} Soal Benar)
-                                    </p>
-                                    <div v-if="quizResult.passed" class="pt-2 flex justify-center">
-                                        <Button
-                                            type="button"
-                                            variant="primary"
-                                            size="md"
-                                            @click="advanceToNextItem"
-                                            class="shadow-lg shadow-indigo-500/20"
-                                        >
-                                            <span>Lanjut ke Materi Berikutnya &rarr;</span>
-                                        </Button>
-                                    </div>
-                                </div>
-
-                                <div v-if="activeQuiz.quiz_questions && activeQuiz.quiz_questions.length > 0 && !quizResult?.passed" class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
-                                    <Button variant="primary" size="md" @click="submitQuiz">
+                                <div v-if="activeQuiz.quiz_questions && activeQuiz.quiz_questions.length > 0" class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                                    <Button v-if="!quizResult" variant="primary" size="md" @click="submitQuiz">
                                         Kirimkan Jawaban Kuis
+                                    </Button>
+                                    <Button v-else-if="quizResult.passed" variant="primary" size="md" @click="advanceToNextItem">
+                                        Lanjut ke Materi Berikutnya &rarr;
+                                    </Button>
+                                    <Button v-else variant="primary" size="md" @click="retakeQuiz">
+                                        Ulangi Kuis
                                     </Button>
                                 </div>
                             </div>
@@ -794,11 +854,15 @@ onMounted(() => {
                                     :class="[
                                         activeLessonState?.id === item.id
                                             ? 'bg-indigo-600 text-white font-bold shadow-md shadow-indigo-600/30'
-                                            : 'hover:bg-slate-800 text-slate-300'
+                                            : item.is_locked
+                                                ? 'text-slate-500 opacity-60 cursor-not-allowed'
+                                                : 'hover:bg-slate-800 text-slate-300'
                                     ]"
+                                    :title="item.is_locked ? item.lock_reason : undefined"
                                 >
                                     <div class="flex items-center gap-2.5 min-w-0">
-                                        <CheckCircle2 v-if="isLessonCompleted(item.id)" class="h-4 w-4 text-emerald-400 shrink-0" />
+                                        <Lock v-if="item.is_locked" class="h-4 w-4 text-slate-500 shrink-0" />
+                                        <CheckCircle2 v-else-if="isLessonCompleted(item.id)" class="h-4 w-4 text-emerald-400 shrink-0" />
                                         <Circle v-else class="h-4 w-4 text-slate-500 shrink-0" />
                                         <span class="truncate">{{ item.title }}</span>
                                     </div>
@@ -814,11 +878,15 @@ onMounted(() => {
                                     :class="[
                                         activeQuiz?.id === item.id
                                             ? 'bg-purple-600 text-white font-bold shadow-md border-purple-500'
-                                            : 'bg-purple-950/20 text-purple-300 border-purple-900/40 hover:bg-purple-900/30'
+                                            : item.is_locked
+                                                ? 'bg-purple-950/10 text-slate-500 border-purple-900/20 opacity-60 cursor-not-allowed'
+                                                : 'bg-purple-950/20 text-purple-300 border-purple-900/40 hover:bg-purple-900/30'
                                     ]"
+                                    :title="item.is_locked ? item.lock_reason : undefined"
                                 >
                                     <div class="flex items-center gap-2.5 min-w-0">
-                                        <FileQuestion class="h-4 w-4 shrink-0" :class="activeQuiz?.id === item.id ? 'text-white' : 'text-purple-400'" />
+                                        <Lock v-if="item.is_locked" class="h-4 w-4 text-slate-500 shrink-0" />
+                                        <FileQuestion v-else class="h-4 w-4 shrink-0" :class="activeQuiz?.id === item.id ? 'text-white' : 'text-purple-400'" />
                                         <span class="truncate">Kuis: {{ item.title }}</span>
                                     </div>
                                     <Badge v-if="isQuizPassed(item.id)" variant="success" size="sm">
@@ -832,5 +900,29 @@ onMounted(() => {
                 </aside>
             </div>
         </template>
+
+        <div v-else class="flex-1 flex items-center justify-center p-6">
+            <div class="max-w-md w-full text-center space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-8">
+                <BookOpen class="h-10 w-10 mx-auto text-indigo-400" />
+                <h1 class="text-lg font-bold text-white">
+                    {{ accessError?.status === 403 ? 'Akses Ruang Belajar Terkunci' : 'Ruang Belajar Tidak Tersedia' }}
+                </h1>
+                <p class="text-sm text-slate-400">{{ accessError?.message || 'Kursus tidak ditemukan.' }}</p>
+                <div class="flex flex-col sm:flex-row gap-2 justify-center pt-2">
+                    <NuxtLink
+                        :to="`/courses/${slug}`"
+                        class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 transition"
+                    >
+                        Lihat Detail Kursus
+                    </NuxtLink>
+                    <NuxtLink
+                        to="/my-courses"
+                        class="inline-flex items-center justify-center rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 transition"
+                    >
+                        Kursus Saya
+                    </NuxtLink>
+                </div>
+            </div>
+        </div>
     </div>
 </template>

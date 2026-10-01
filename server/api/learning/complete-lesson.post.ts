@@ -1,112 +1,55 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { requireActiveEnrollment, recalculateProgress, getCourseLockState } from '~/server/utils/learningProgress'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
-  const { course_id, lesson_id } = body
+  const courseId = Number(body?.course_id)
+  const lessonId = Number(body?.lesson_id)
 
-  if (!course_id || !lesson_id) {
+  if (!courseId || !lessonId) {
     throw createError({ statusCode: 400, statusMessage: 'course_id dan lesson_id harus diisi.' })
   }
 
-  const supabase = await serverSupabaseClient(event)
-  const user = await serverSupabaseUser(event)
+  const { client, userId, enrollment } = await requireActiveEnrollment(event, courseId)
 
-  if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Sesi login tidak sah.' })
+  const { data: lesson } = await client
+    .from('lessons')
+    .select('id, section:course_sections!inner(course_id)')
+    .eq('id', lessonId)
+    .eq('section.course_id', courseId)
+    .maybeSingle()
+
+  if (!lesson) {
+    throw createError({ statusCode: 404, statusMessage: 'Pelajaran tidak ditemukan di kursus ini.' })
   }
 
-  // 1. Verify Enrollment
-  const { data: enrollment, error: enrollError } = await supabase
-    .from('enrollments')
-    .select('id, status')
-    .eq('user_id', user.id)
-    .eq('course_id', course_id)
-    .eq('status', 'active')
-    .single()
-
-  if (enrollError || !enrollment) {
-    throw createError({ statusCode: 403, statusMessage: 'Anda tidak memiliki akses aktif ke kursus ini.' })
+  const { lockedLessons } = await getCourseLockState(client, userId, courseId)
+  if (lockedLessons.has(lessonId)) {
+    throw createError({ statusCode: 403, statusMessage: lockedLessons.get(lessonId) })
   }
 
-  // 2. Upsert Lesson Progress
-  const { error: progressError } = await supabase
+  const now = new Date().toISOString()
+  const { error: progressError } = await client
     .from('lesson_progress')
     .upsert({
-      user_id: user.id,
-      course_id: course_id,
-      lesson_id: lesson_id,
+      user_id: userId,
+      course_id: courseId,
+      lesson_id: lessonId,
       is_completed: true,
-      completed_at: new Date().toISOString()
-    }, {
-      onConflict: 'user_id,lesson_id'
-    })
+      completed_at: now,
+      updated_at: now,
+    }, { onConflict: 'user_id,lesson_id' })
 
   if (progressError) {
     throw createError({ statusCode: 500, statusMessage: 'Gagal memperbarui progres: ' + progressError.message })
   }
 
-  // 3. Check if all lessons in the course are now completed
-  const { data: allLessons } = await supabase
-    .from('lessons')
-    .select('id, section:course_sections!inner(course_id)')
-    .eq('section.course_id', course_id)
-    .eq('is_active', true)
-
-  const totalLessonsCount = allLessons?.length || 0
-
-  const { data: completedProgress } = await supabase
-    .from('lesson_progress')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('course_id', course_id)
-    .eq('is_completed', true)
-
-  const completedCount = completedProgress?.length || 0
-  const isCourseComplete = totalLessonsCount > 0 && completedCount >= totalLessonsCount
-
-  let certificateCode = null
-
-  // 4. Issue Certificate if course completed
-  if (isCourseComplete) {
-    await supabase
-      .from('enrollments')
-      .update({ completed_at: new Date().toISOString() })
-      .eq('id', enrollment.id)
-
-    // Check if certificate already exists
-    const { data: existingCert } = await supabase
-      .from('certificates')
-      .select('certificate_code')
-      .eq('user_id', user.id)
-      .eq('course_id', course_id)
-      .maybeSingle()
-
-    if (existingCert) {
-      certificateCode = existingCert.certificate_code
-    } else {
-      const randomCert = 'MIO-CERT-' + Math.random().toString(36).substring(2, 9).toUpperCase()
-      const { data: newCert } = await supabase
-        .from('certificates')
-        .insert({
-          certificate_code: randomCert,
-          user_id: user.id,
-          course_id: course_id
-        })
-        .select()
-        .single()
-
-      if (newCert) certificateCode = newCert.certificate_code
-    }
-  }
+  const progress = await recalculateProgress(client, userId, courseId, enrollment)
 
   return {
     success: true,
-    completed_count: completedCount,
-    total_count: totalLessonsCount,
-    is_course_complete: isCourseComplete,
-    certificate_code: certificateCode,
-    message: isCourseComplete
+    ...progress,
+    message: progress.is_course_complete
       ? 'Selamat! Anda telah menyelesaikan seluruh materi kursus dan mendapatkan sertifikat kelulusan!'
-      : 'Pelajaran berhasil diselesaikan!'
+      : 'Pelajaran berhasil diselesaikan!',
   }
 })

@@ -121,7 +121,8 @@ const loadDashboardData = async () => {
             const { data: enrollments } = await supabase
                 .from('enrollments')
                 .select('*, courses:course_id(*)')
-                .eq('user_id', user.value.id);
+                .eq('user_id', (user.value.id || (user.value as any).sub))
+                .eq('status', 'active');
 
             const allEnrollments = enrollments || [];
             const completed = allEnrollments.filter((e: any) => e.progress_percentage === 100);
@@ -129,7 +130,7 @@ const loadDashboardData = async () => {
             const { count: certCount } = await supabase
                 .from('certificates')
                 .select('*', { count: 'exact', head: true })
-                .eq('user_id', user.value.id);
+                .eq('user_id', (user.value.id || (user.value as any).sub));
 
             studentStats.value = {
                 enrolled_count: allEnrollments.length,

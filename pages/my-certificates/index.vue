@@ -45,7 +45,7 @@ const loadCertificates = async () => {
                     profiles:instructor_id(name)
                 )
             `)
-            .eq('user_id', user.value.id)
+            .eq('user_id', (user.value.id || (user.value as any).sub))
             .order('issued_at', { ascending: false });
 
         if (error) throw error;

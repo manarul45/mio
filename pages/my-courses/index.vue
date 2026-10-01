@@ -24,6 +24,7 @@ const enrollments = ref<any[]>([]);
 
 const loadMyCourses = async () => {
     if (!user.value) return;
+    const userId = user.value.id || (user.value as any).sub;
     loading.value = true;
     try {
         const { data, error } = await supabase
@@ -41,24 +42,40 @@ const loadMyCourses = async () => {
                     categories:category_id(name),
                     sections:course_sections(
                         id,
-                        lessons(id),
-                        quizzes(id)
+                        lessons(id, is_active),
+                        quizzes(id, is_active)
                     )
                 )
             `)
-            .eq('user_id', user.value.id)
+            .eq('user_id', userId)
+            .eq('status', 'active')
             .order('enrolled_at', { ascending: false });
 
         if (error) throw error;
+
+        const [{ data: lessonProgress }, { data: passedAttempts }] = await Promise.all([
+            supabase.from('lesson_progress').select('lesson_id').eq('user_id', userId).eq('is_completed', true),
+            supabase.from('quiz_attempts').select('quiz_id').eq('user_id', userId).eq('passed', true),
+        ]);
+        const completedLessonIds = new Set((lessonProgress || []).map((p: any) => p.lesson_id));
+        const passedQuizIds = new Set((passedAttempts || []).map((a: any) => a.quiz_id));
 
         enrollments.value = (data || []).map((e: any) => {
             const course = e.courses || {};
             const sections = course.sections || [];
             let totalLessons = 0;
             let totalQuizzes = 0;
+            let completedLessons = 0;
+            let passedQuizzes = 0;
             sections.forEach((s: any) => {
-                totalLessons += (s.lessons || []).length;
-                totalQuizzes += (s.quizzes || []).length;
+                (s.lessons || []).filter((l: any) => l.is_active !== false).forEach((l: any) => {
+                    totalLessons++;
+                    if (completedLessonIds.has(l.id)) completedLessons++;
+                });
+                (s.quizzes || []).filter((q: any) => q.is_active !== false).forEach((q: any) => {
+                    totalQuizzes++;
+                    if (passedQuizIds.has(q.id)) passedQuizzes++;
+                });
             });
 
             return {
@@ -74,9 +91,9 @@ const loadMyCourses = async () => {
                     category: course.categories,
                 },
                 total_lessons_count: totalLessons,
-                completed_lessons_count: Math.round((totalLessons * (e.progress_percentage || 0)) / 100),
+                completed_lessons_count: completedLessons,
                 total_quizzes_count: totalQuizzes,
-                passed_quizzes_count: e.progress_percentage === 100 ? totalQuizzes : 0,
+                passed_quizzes_count: passedQuizzes,
             };
         });
     } catch (err) {

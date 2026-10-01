@@ -59,7 +59,8 @@ async function createAdmin() {
       // Update password & metadata
       await supabase.auth.admin.updateUserById(userId, {
         password: password,
-        user_metadata: { name, role: 'ADMIN' },
+        user_metadata: { name },
+        app_metadata: { role: 'ADMIN' },
         email_confirm: true
       })
       console.log(`✅ Password dan metadata user telah diperbarui.`)
@@ -70,7 +71,9 @@ async function createAdmin() {
         password: password,
         email_confirm: true,
         user_metadata: {
-          name: name,
+          name: name
+        },
+        app_metadata: {
           role: 'ADMIN'
         }
       })

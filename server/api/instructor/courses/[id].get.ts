@@ -2,10 +2,9 @@ import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { getAuthenticatedUserId } from '~/server/utils/authHelper'
 
 export default defineEventHandler(async (event) => {
-  const query = getQuery(event)
   const client = getAdminSupabaseClient(event)
 
-  const userId = await getAuthenticatedUserId(event, query?.user_id as string)
+  const userId = await getAuthenticatedUserId(event)
   if (!userId) {
     throw createError({ statusCode: 401, statusMessage: 'Harap login terlebih dahulu' })
   }

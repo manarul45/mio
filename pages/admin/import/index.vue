@@ -17,10 +17,6 @@ import {
 } from 'lucide-vue-next'
 import Swal from 'sweetalert2'
 
-definePageMeta({
-  middleware: 'admin'
-})
-
 const fileInput = ref<HTMLInputElement | null>(null)
 const sqlContent = ref('')
 const fileName = ref('')

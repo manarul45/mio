@@ -128,47 +128,11 @@ const approveOrder = async (order: any) => {
     if (!isConfirmed) return;
 
     try {
-        // 1. Update order status to 'paid'
-        const { error: ordErr } = await supabase
-            .from('orders')
-            .update({ status: 'paid' })
-            .eq('id', order.id);
-
-        if (ordErr) throw ordErr;
-
-        // 2. Grant course enrollment to user for each course in order
-        if (order.user?.id && order.items?.length) {
-            for (const item of order.items) {
-                if (item.course?.id) {
-                    await supabase
-                        .from('enrollments')
-                        .upsert({
-                            user_id: order.user.id,
-                            course_id: item.course.id,
-                            progress_percentage: 0,
-                            enrolled_at: new Date().toISOString(),
-                        }, { onConflict: 'user_id,course_id' });
-                }
-            }
-        }
-
-        // 3. Approve affiliate commission if order had affiliate
-        if (order.affiliate_user_id) {
-            try {
-                await supabase
-                    .from('affiliate_commissions')
-                    .update({
-                        status: 'approved',
-                        approved_at: new Date().toISOString(),
-                    })
-                    .eq('order_id', order.id);
-            } catch {}
-        }
-
+        await $fetch(`/api/admin/orders/${order.id}/approve`, { method: 'POST' });
         swal.fireSuccess('Pembayaran Disetujui!', `Akses kursus untuk ${order.user?.name} telah aktif.`);
         loadOrders();
     } catch (err: any) {
-        swal.toastError(err.message || 'Gagal menyetujui pesanan.');
+        swal.toastError(err.data?.statusMessage || err.message || 'Gagal menyetujui pesanan.');
     }
 };
 
@@ -183,15 +147,11 @@ const rejectOrder = async (order: any) => {
     if (!isConfirmed) return;
 
     try {
-        await supabase
-            .from('orders')
-            .update({ status: 'cancelled' })
-            .eq('id', order.id);
-
+        await $fetch(`/api/admin/orders/${order.id}/cancel`, { method: 'POST' });
         swal.toastSuccess('Pesanan berhasil dibatalkan.');
         loadOrders();
     } catch (err: any) {
-        swal.toastError(err.message);
+        swal.toastError(err.data?.statusMessage || err.message || 'Gagal membatalkan pesanan.');
     }
 };
 

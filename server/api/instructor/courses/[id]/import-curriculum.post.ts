@@ -9,7 +9,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const { client } = await assertCanManageCourse(event, courseId, body?.instructor_id)
+  const { client } = await assertCanManageCourse(event, courseId)
 
   try {
     const result = await importCurriculum(client, courseId, body?.sections)

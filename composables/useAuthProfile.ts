@@ -7,7 +7,9 @@ export const useAuthProfile = () => {
   const loading = useState<boolean>('auth_profile_loading', () => false)
 
   const fetchProfile = async () => {
-    if (!user.value || !user.value.id) {
+    // @nuxtjs/supabase v2 mengisi user dari isi token, ID ada di `sub`.
+    const userId = user.value?.id || (user.value as any)?.sub
+    if (!userId) {
       profile.value = null
       return null
     }
@@ -17,39 +19,13 @@ export const useAuthProfile = () => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', user.value.id)
+        .eq('id', userId)
         .maybeSingle()
 
       if (error) throw error
 
-      let fetchedProfile = data as Profile | null
-      const email = (user.value.email || '').toLowerCase().trim()
-      const isAutoAdmin = email === 'admin@mioacademy.com' || email.startsWith('admin@')
-
-      if (isAutoAdmin) {
-        if (!fetchedProfile) {
-          const { data: newProfile } = await supabase
-            .from('profiles')
-            .insert({
-              id: user.value.id,
-              name: user.value.user_metadata?.name || user.value.user_metadata?.full_name || email.split('@')[0],
-              email: user.value.email,
-              role: 'ADMIN'
-            })
-            .select('*')
-            .single()
-          fetchedProfile = newProfile as Profile
-        } else if (fetchedProfile.role !== 'ADMIN' && fetchedProfile.role !== 'SUPER_ADMIN') {
-          await supabase
-            .from('profiles')
-            .update({ role: 'ADMIN' })
-            .eq('id', user.value.id)
-          fetchedProfile.role = 'ADMIN'
-        }
-      }
-
-      profile.value = fetchedProfile
-      return fetchedProfile
+      profile.value = data as Profile | null
+      return profile.value
     } catch (err) {
       console.error('Error fetching profile:', err)
       profile.value = null
@@ -65,23 +41,16 @@ export const useAuthProfile = () => {
     return allowed.includes(profile.value.role)
   }
 
+  // user_metadata dan email bisa diatur sendiri oleh pengguna, jadi tidak dipakai untuk peran.
   const isAdmin = computed(() => {
-    const email = (user.value?.email || '').toLowerCase().trim()
-    const isAutoAdmin = email === 'admin@mioacademy.com' || email.startsWith('admin@')
-
-    return isAutoAdmin ||
-           profile.value?.role === 'ADMIN' ||
+    return profile.value?.role === 'ADMIN' ||
            profile.value?.role === 'SUPER_ADMIN' ||
-           user.value?.user_metadata?.role === 'ADMIN' ||
-           user.value?.user_metadata?.role === 'SUPER_ADMIN' ||
            user.value?.app_metadata?.role === 'ADMIN' ||
            user.value?.app_metadata?.role === 'SUPER_ADMIN'
   })
 
   const isInstructor = computed(() => {
-    return profile.value?.role === 'INSTRUCTOR' ||
-           user.value?.user_metadata?.role === 'INSTRUCTOR' ||
-           isAdmin.value
+    return profile.value?.role === 'INSTRUCTOR' || isAdmin.value
   })
 
   const logout = async () => {

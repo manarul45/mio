@@ -30,9 +30,6 @@ const isMobileMenuOpen = ref(false)
             <NuxtLink to="/courses" class="hover:text-indigo-600 transition-colors">
               Jelajah Kursus
             </NuxtLink>
-            <NuxtLink to="/guide" class="hover:text-indigo-600 transition-colors">
-              Panduan & Bantuan
-            </NuxtLink>
           </nav>
         </div>
 
@@ -103,13 +100,6 @@ const isMobileMenuOpen = ref(false)
         >
           Jelajah Kursus
         </NuxtLink>
-        <NuxtLink
-          to="/guide"
-          class="block py-2 text-sm font-medium text-slate-700 hover:text-indigo-600 dark:text-slate-300"
-          @click="isMobileMenuOpen = false"
-        >
-          Panduan & Bantuan
-        </NuxtLink>
         <template v-if="user">
           <NuxtLink
             to="/dashboard"
@@ -152,7 +142,6 @@ const isMobileMenuOpen = ref(false)
         </div>
         <div class="flex items-center gap-6">
           <NuxtLink to="/courses" class="hover:text-indigo-600 transition">Katalog Kursus</NuxtLink>
-          <NuxtLink to="/guide" class="hover:text-indigo-600 transition">Panduan & Tutorial</NuxtLink>
           <NuxtLink to="/login" class="hover:text-indigo-600 transition">Masuk Akun</NuxtLink>
         </div>
       </div>

@@ -22,6 +22,10 @@ import {
   Check,
 } from 'lucide-vue-next'
 
+definePageMeta({
+  middleware: ['auth'],
+})
+
 useHead({
   title: 'Pusat Panduan & Tutorial — MIO Learning Academy',
   meta: [

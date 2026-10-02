@@ -90,32 +90,54 @@ const resetFilters = () => {
   applyFilters()
 }
 
+const goToPage = async (page: number) => {
+  const total = coursesData.value?.totalPages || 1
+  const next = Math.min(Math.max(1, page), total)
+  if (next === currentPage.value) return
+
+  currentPage.value = next
+  await router.replace({
+    path: '/courses',
+    query: {
+      search: search.value || undefined,
+      category: selectedCategory.value || undefined,
+      level: selectedLevel.value || undefined,
+      sort: selectedSort.value !== 'latest' ? selectedSort.value : undefined,
+      page: next > 1 ? String(next) : undefined,
+    },
+  })
+
+  if (import.meta.client) {
+    document.getElementById('daftar-kursus')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
 const paginationLinks = computed(() => {
   const total = coursesData.value?.totalPages || 1
   const cur = currentPage.value
   const links = []
 
   links.push({
-    url: cur > 1 ? `#` : null,
+    url: cur > 1 ? String(cur - 1) : null,
+    page: cur - 1,
     label: '&laquo; Sebelumnya',
     active: false,
-    onClick: () => { if (cur > 1) { currentPage.value--; refresh() } }
   })
 
   for (let i = 1; i <= total; i++) {
     links.push({
-      url: `#`,
+      url: String(i),
+      page: i,
       label: String(i),
       active: i === cur,
-      onClick: () => { currentPage.value = i; refresh() }
     })
   }
 
   links.push({
-    url: cur < total ? `#` : null,
+    url: cur < total ? String(cur + 1) : null,
+    page: cur + 1,
     label: 'Berikutnya &raquo;',
     active: false,
-    onClick: () => { if (cur < total) { currentPage.value++; refresh() } }
   })
 
   return links
@@ -140,10 +162,10 @@ useHead({
             <span>Katalog Kursus Lengkap</span>
           </span>
           <h1 class="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            Tingkatkan Keahlian dengan Kursus Pilihan
+            Tingkatkan Ilmu Agama dengan Kitab-Kitab Pilihan
           </h1>
           <p class="mt-2 text-base text-slate-600 dark:text-slate-400">
-            Pilih dari {{ coursesData?.total || 0 }} kursus berkualitas tinggi yang dipandu oleh praktisi berpengalaman.
+            Pilih satu atau lebih dari {{ coursesData?.total || 0 }} kelas online yang disusun bertahap, dari dasar sampai siap diajarkan kembali.
           </p>
         </div>
 
@@ -225,7 +247,7 @@ useHead({
     </div>
 
     <!-- Main Course Grid Area -->
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div id="daftar-kursus" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 scroll-mt-24">
       <!-- Active filter badge summary -->
       <div v-if="search || selectedCategory || selectedLevel" class="mb-6 flex items-center justify-between">
         <p class="text-sm text-slate-600 dark:text-slate-400">
@@ -343,7 +365,7 @@ useHead({
 
       <!-- Pagination -->
       <div v-if="coursesData && coursesData.totalPages > 1" class="mt-12 flex justify-center">
-        <Pagination :links="paginationLinks" />
+        <Pagination :links="paginationLinks" @change="goToPage(Number($event))" />
       </div>
     </div>
   </div>

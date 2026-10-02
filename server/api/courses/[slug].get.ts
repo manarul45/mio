@@ -46,6 +46,10 @@ export default defineEventHandler(async (event) => {
   const totalRating = reviews.reduce((sum: number, r: any) => sum + (Number(r.rating) || 0), 0)
   const averageRating = totalReviews > 0 ? (totalRating / totalReviews).toFixed(1) : '5.0'
 
+  delete data.telegram_url
+  delete data.whatsapp_group_url
+  delete data.whatsapp_contact_url
+
   return {
     ...data,
     total_reviews: totalReviews,

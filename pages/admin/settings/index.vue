@@ -12,6 +12,7 @@ import {
     Eye,
     EyeOff,
 } from 'lucide-vue-next';
+import { DEFAULT_WHATSAPP_GROUPS } from '~/utils/whatsappGroups';
 
 definePageMeta({
     layout: 'dashboard',
@@ -29,6 +30,8 @@ const showCloudinarySecretKey = ref(false);
 
 const form = ref({
     admin_whatsapp_number: '6281234567890',
+    whatsapp_group_muslim_url: DEFAULT_WHATSAPP_GROUPS.muslim,
+    whatsapp_group_muslimah_url: DEFAULT_WHATSAPP_GROUPS.muslimah,
     bank_transfer_instructions: 'Bank Central Asia (BCA)\nNo. Rekening: 1234-5678-90\nAtas Nama: MIO Learning Academy',
     cloudflare_r2_enabled: false,
     cloudflare_account_id: '',
@@ -392,6 +395,20 @@ onMounted(() => {
                     />
                     <p class="text-[11px] text-slate-400 -mt-3">
                         Nomor ini akan digunakan sebagai tujuan pesan otomatis saat pembeli klik konfirmasi pembayaran via WhatsApp pada halaman invoice.
+                    </p>
+
+                    <Input
+                        v-model="form.whatsapp_group_muslim_url"
+                        label="Tautan Grup WhatsApp Muslim"
+                        placeholder="https://chat.whatsapp.com/..."
+                    />
+                    <Input
+                        v-model="form.whatsapp_group_muslimah_url"
+                        label="Tautan Grup WhatsApp Muslimah"
+                        placeholder="https://chat.whatsapp.com/..."
+                    />
+                    <p class="text-[11px] text-slate-400 -mt-3">
+                        Kedua tautan ini tampil di setiap halaman kelas. Telegram tidak dipakai lagi.
                     </p>
 
                     <Textarea

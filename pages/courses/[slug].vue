@@ -12,7 +12,6 @@ import {
   Sparkles,
   Check,
   MessageCircle,
-  Send,
   Play,
   Award,
   BookOpen,
@@ -34,6 +33,10 @@ const slug = route.params.slug as string
 // Fetch Course details with Sections, Lessons, and Quizzes from server endpoint
 const { data: course, refresh: refreshCourse } = await useAsyncData(`course_detail_${slug}`, () => 
   $fetch<Course>(`/api/courses/${slug}`)
+)
+
+const { data: studyGroups } = await useAsyncData('whatsapp_study_groups', () =>
+  $fetch<{ muslim: string; muslimah: string }>('/api/community-groups')
 )
 
 // Check enrollment status
@@ -418,52 +421,40 @@ useHead({
             </div>
           </div>
 
-          <!-- Community Support Links -->
-          <div class="rounded-3xl border border-indigo-100 bg-indigo-50/50 p-8 dark:border-indigo-950 dark:bg-indigo-950/30 space-y-6">
+          <!-- Grup belajar WhatsApp -->
+          <div class="rounded-3xl border border-emerald-100 bg-emerald-50/50 p-8 dark:border-emerald-950 dark:bg-emerald-950/30 space-y-6">
             <div class="flex items-center gap-3">
-              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white">
+              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white">
                 <MessageCircle class="h-5 w-5" />
               </div>
               <div>
                 <h3 class="text-lg font-bold text-slate-900 dark:text-white">
-                  Komunitas & Diskusi Kursus
+                  Grup Belajar
                 </h3>
                 <p class="text-xs text-slate-600 dark:text-slate-400">
-                  Bergabunglah dengan grup diskusi resmi untuk tanya jawab langsung bersama instruktur dan sesama student.
+                  Pilih satu grup WhatsApp sesuai diri Anda. Pertanyaan kelas dibahas di sana.
                 </p>
               </div>
             </div>
 
             <div class="flex flex-wrap gap-4">
               <a
-                v-if="course.whatsapp_group_url"
-                :href="course.whatsapp_group_url"
+                :href="studyGroups?.muslim"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition"
               >
                 <MessageCircle class="h-4 w-4" />
-                <span>Join WhatsApp Group</span>
+                <span>Grup WhatsApp Muslim</span>
               </a>
               <a
-                v-if="course.telegram_url"
-                :href="course.telegram_url"
+                :href="studyGroups?.muslimah"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-sky-700 transition"
+                class="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 transition"
               >
-                <Send class="h-4 w-4" />
-                <span>Join Telegram Channel</span>
-              </a>
-              <a
-                v-if="course.whatsapp_contact_url"
-                :href="course.whatsapp_contact_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-              >
-                <MessageCircle class="h-4 w-4 text-emerald-600" />
-                <span>Chat via WhatsApp</span>
+                <MessageCircle class="h-4 w-4" />
+                <span>Grup WhatsApp Muslimah</span>
               </a>
             </div>
           </div>

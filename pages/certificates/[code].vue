@@ -28,6 +28,7 @@ const { data: cert, error } = await useAsyncData(`cert_${code}`, async () => {
     .single()
 
   if (error || !data) throw createError({ statusCode: 404, statusMessage: 'Sertifikat tidak ditemukan atau tidak valid.' })
+  if (data.course) await applySavedInstructorName(data.course)
   return data as Certificate
 })
 

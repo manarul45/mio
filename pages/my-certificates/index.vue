@@ -41,6 +41,7 @@ const loadCertificates = async () => {
                 certificate_code,
                 issued_at,
                 courses:course_id(
+                    id,
                     title,
                     profiles:instructor_id(name)
                 )
@@ -54,10 +55,14 @@ const loadCertificates = async () => {
             certificate_code: c.certificate_code,
             issued_at: c.issued_at,
             course: {
+                id: c.courses?.id,
                 title: c.courses?.title,
                 instructor: c.courses?.profiles,
             },
         }));
+        for (const cert of certificates.value) {
+            await applySavedInstructorName(cert.course);
+        }
     } catch (err) {
         console.error('Failed to load certificates:', err);
     } finally {

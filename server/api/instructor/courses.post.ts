@@ -1,5 +1,6 @@
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { getAuthenticatedUserId } from '~/server/utils/authHelper'
+import { setCourseInstructorName } from '~/server/utils/instructorNames'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -30,6 +31,10 @@ export default defineEventHandler(async (event) => {
     .replace(/\-\-+/g, '-')
 
   const uniqueSlug = `${baseSlug}-${Date.now().toString(36)}`
+
+  if (!body.instructor_name || !String(body.instructor_name).trim()) {
+    throw createError({ statusCode: 400, statusMessage: 'Nama pengajar wajib dipilih.' })
+  }
 
   const payload = {
     title: body.title.trim(),
@@ -65,6 +70,8 @@ export default defineEventHandler(async (event) => {
     console.error('Failed to create course:', error)
     throw createError({ statusCode: 500, statusMessage: error.message || 'Gagal membuat kursus' })
   }
+
+  await setCourseInstructorName(client, data.id, body.instructor_name)
 
   return { success: true, data }
 })

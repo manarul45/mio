@@ -1,5 +1,6 @@
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { getAuthenticatedUserId } from '~/server/utils/authHelper'
+import { getCourseInstructorMap } from '~/server/utils/instructorNames'
 
 export default defineEventHandler(async (event) => {
   const client = getAdminSupabaseClient(event)
@@ -60,6 +61,9 @@ export default defineEventHandler(async (event) => {
       }
     })
   }
+
+  const nameMap = await getCourseInstructorMap(client)
+  data.instructor_name = nameMap[String(data.id)] || data.instructor?.name || ''
 
   return data
 })

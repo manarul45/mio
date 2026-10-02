@@ -38,6 +38,7 @@ const route = useRoute();
 const slug = route.params.slug as string;
 const supabase = useSupabaseClient();
 const toast = useToast();
+const { user, isAdmin } = useAuthProfile();
 
 const loading = ref(true);
 const accessError = ref<{ status: number; message: string } | null>(null);
@@ -159,6 +160,7 @@ const submitReply = async (discId: number) => {
     try {
         const res: any = await $fetch(`/api/discussions/${discId}/reply`, {
             method: 'POST',
+            headers: await authHeaders(),
             body: { content: text.trim() },
         });
         const disc = discussions.value.find((d: any) => d.id === discId);
@@ -177,7 +179,10 @@ const submitReply = async (discId: number) => {
 
 const toggleResolve = async (disc: any) => {
     try {
-        const res: any = await $fetch(`/api/discussions/${disc.id}/resolve`, { method: 'POST' });
+        const res: any = await $fetch(`/api/discussions/${disc.id}/resolve`, {
+            method: 'POST',
+            headers: await authHeaders(),
+        });
         disc.is_resolved = res.is_resolved;
         toast.info(disc.is_resolved ? 'Diskusi ditandai selesai.' : 'Diskusi dibuka kembali.');
     } catch (err: any) {
@@ -185,7 +190,13 @@ const toggleResolve = async (disc: any) => {
     }
 };
 
-const selectLesson = (lesson: any) => {
+const canAnswerDiscussion = computed(() => {
+    if (isAdmin.value) return true;
+    const userId = user.value?.id || (user.value as any)?.sub;
+    return !!userId && course.value?.instructor_id === userId;
+});
+
+const selectLesson = (lesson: any, tab: 'overview' | 'qa' = 'overview') => {
     if (lesson.is_locked) {
         toast.info(lesson.lock_reason || 'Materi ini belum terbuka.');
         return;
@@ -193,7 +204,7 @@ const selectLesson = (lesson: any) => {
     activeQuiz.value = null;
     quizResult.value = null;
     activeLessonState.value = lesson;
-    activeLessonTab.value = 'overview';
+    activeLessonTab.value = tab;
     loadDiscussions(lesson.id);
 };
 
@@ -315,8 +326,16 @@ const loadClassroomData = async () => {
         // Lanjutkan dari materi pertama yang belum selesai dan sudah terbuka.
         const items = allCurriculumItems.value.filter((item: any) => !item.is_locked);
         const isDone = (item: any) => item.item_type === 'lesson' ? isLessonCompleted(item.id) : isQuizPassed(item.id);
-        const startItem = items.find((item: any) => !isDone(item)) || items[0];
-        if (startItem) openItem(startItem);
+        const wantedLesson = Number(route.query.lesson || 0);
+        const wanted = wantedLesson
+            ? items.find((item: any) => item.item_type === 'lesson' && Number(item.id) === wantedLesson)
+            : null;
+        const startItem = wanted || items.find((item: any) => !isDone(item)) || items[0];
+        if (wanted) {
+            selectLesson(wanted, route.query.tab === 'qa' ? 'qa' : 'overview');
+        } else if (startItem) {
+            openItem(startItem);
+        }
     } catch (err: any) {
         const status = err?.statusCode || err?.response?.status || 500;
         if (status === 401) {
@@ -580,6 +599,9 @@ onMounted(() => {
                                                 placeholder="Jelaskan pertanyaan atau kendala Anda secara detail..."
                                                 class="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-xs text-white focus:border-indigo-500 focus:outline-none"
                                             ></textarea>
+                                            <p class="text-[11px] leading-relaxed text-slate-500">
+                                                Pengajar menjawab di forum ini. Obrolan umum tetap lewat grup WhatsApp di halaman kelas.
+                                            </p>
                                             <div class="flex justify-end">
                                                 <Button
                                                     type="button"
@@ -624,12 +646,13 @@ onMounted(() => {
                                                     </div>
                                                 </div>
 
-                                                <div class="flex items-center gap-2">
+                                                <div v-if="disc.is_resolved || canAnswerDiscussion" class="flex items-center gap-2">
                                                     <span v-if="disc.is_resolved" class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-800 flex items-center gap-1">
                                                         <Check class="h-3 w-3" />
                                                         <span>Terselesaikan</span>
                                                     </span>
                                                     <button
+                                                        v-if="canAnswerDiscussion"
                                                         type="button"
                                                         @click="toggleResolve(disc)"
                                                         class="text-[11px] font-semibold text-slate-400 hover:text-indigo-400 transition"
@@ -664,7 +687,7 @@ onMounted(() => {
                                             </div>
 
                                             <!-- Reply Form -->
-                                            <div class="pt-2 flex items-center gap-2">
+                                            <div v-if="canAnswerDiscussion" class="pt-2 flex items-center gap-2">
                                                 <input
                                                     v-model="replyContent[disc.id]"
                                                     type="text"

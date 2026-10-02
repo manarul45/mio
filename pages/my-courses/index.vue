@@ -96,6 +96,9 @@ const loadMyCourses = async () => {
                 passed_quizzes_count: passedQuizzes,
             };
         });
+        for (const item of enrollments.value) {
+            await applySavedInstructorName(item.course);
+        }
     } catch (err) {
         console.error('Failed to load enrolled courses:', err);
     } finally {

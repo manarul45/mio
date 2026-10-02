@@ -27,6 +27,7 @@ const supabase = useSupabaseClient();
 const swal = useSwal();
 
 const categories = ref<any[]>([]);
+const instructorNames = ref<string[]>([]);
 const isSubmitting = ref(false);
 const isUploadingThumbnail = ref(false);
 
@@ -45,6 +46,7 @@ const form = ref({
     requirements: [''],
     target_audience: [''],
     whatsapp_group_url: '',
+    instructor_name: '',
 });
 
 const addObjective = () => form.value.learning_objectives.push('');
@@ -62,6 +64,11 @@ const loadCategories = async () => {
         categories.value = data || [];
         if (categories.value.length > 0) {
             form.value.category_id = categories.value[0].id;
+        }
+        const roster: any = await $fetch('/api/course-instructors');
+        instructorNames.value = roster?.names || [];
+        if (!form.value.instructor_name && instructorNames.value.length > 0) {
+            form.value.instructor_name = instructorNames.value[0];
         }
     } catch (err) {
         console.error('Failed to load categories:', err);
@@ -113,6 +120,10 @@ const submit = async () => {
         swal.toastError('Judul kursus wajib diisi!');
         return;
     }
+    if (!form.value.instructor_name) {
+        swal.toastError('Nama pengajar wajib dipilih!');
+        return;
+    }
 
     const { data: sessionData } = await supabase.auth.getSession();
     const sessionUser = sessionData?.session?.user;
@@ -151,6 +162,7 @@ const submit = async () => {
                 requirements: form.value.requirements.filter(Boolean),
                 target_audience: form.value.target_audience.filter(Boolean),
                 whatsapp_group_url: form.value.whatsapp_group_url,
+                instructor_name: form.value.instructor_name,
                 status: 'draft',
             }
         });
@@ -212,6 +224,19 @@ onMounted(() => {
                         label="Subjudul / Tagline Singkat"
                         placeholder="Contoh: Bangun aplikasi nyata dari nol hingga deploy ke production"
                     />
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Nama Pengajar *</label>
+                        <select
+                            v-model="form.instructor_name"
+                            class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                            required
+                        >
+                            <option value="" disabled>-- Pilih Pengajar --</option>
+                            <option v-for="name in instructorNames" :key="name" :value="name">{{ name }}</option>
+                        </select>
+                        <p class="text-[11px] text-slate-400">Nama ini yang tampil di katalog dan halaman kelas. Pengajar tidak perlu akun login.</p>
+                    </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div class="space-y-1">

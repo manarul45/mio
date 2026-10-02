@@ -44,6 +44,7 @@ const { data: course } = await useAsyncData(`checkout_course_${slug}`, async () 
     .single()
 
   if (error || !data) throw createError({ statusCode: 404, statusMessage: 'Kursus tidak ditemukan' })
+  await applySavedInstructorName(data)
   return data as Course
 })
 

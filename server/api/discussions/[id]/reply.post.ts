@@ -1,39 +1,26 @@
-import { serverSupabaseUser } from '#supabase/server'
-import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { assertCanModerateDiscussion } from '~/server/utils/discussionAccess'
 
 export default defineEventHandler(async (event) => {
   const discussionId = getRouterParam(event, 'id')
-  const user = await serverSupabaseUser(event)
-
-  if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Silakan masuk untuk membalas diskusi.' })
+  if (!discussionId) {
+    throw createError({ statusCode: 400, statusMessage: 'Pertanyaan tidak ditemukan.' })
   }
 
+  const { client, userId } = await assertCanModerateDiscussion(event, discussionId)
   const body = await readBody(event)
-  const { content } = body
+  const content = String(body?.content || '')
 
-  if (!content || !content.trim()) {
+  if (!content.trim()) {
     throw createError({ statusCode: 400, statusMessage: 'Isi balasan wajib diisi.' })
   }
-
-  const client = getAdminSupabaseClient(event)
-
-  // Check user role or if user is course instructor
-  const { data: profile } = await client
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  const isInstructorRole = profile?.role === 'INSTRUCTOR' || profile?.role === 'ADMIN' || profile?.role === 'SUPER_ADMIN'
 
   const { data, error } = await client
     .from('lesson_discussion_replies')
     .insert({
       discussion_id: discussionId,
-      user_id: user.id,
+      user_id: userId,
       content: content.trim(),
-      is_instructor: isInstructorRole,
+      is_instructor: true,
     })
     .select(`
       id,

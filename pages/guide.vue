@@ -396,7 +396,7 @@ const shortcodeExamples = {
             </div>
             <ul class="space-y-2 text-xs text-slate-600 dark:text-slate-400">
               <li>• Ubah status kursus menjadi <strong>Published</strong> agar langsung tayang di katalog.</li>
-              <li>• Pantau pertanyaan siswa di tab diskusi kelas dan berikan tanggapan instruktur resmi.</li>
+              <li>• Pantau pertanyaan siswa di menu admin <strong>Pertanyaan Siswa</strong>, lalu jawab dan tandai selesai.</li>
             </ul>
           </div>
         </div>

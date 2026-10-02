@@ -1,5 +1,6 @@
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { getAuthenticatedUserId } from '~/server/utils/authHelper'
+import { setCourseInstructorName } from '~/server/utils/instructorNames'
 
 export default defineEventHandler(async (event) => {
   const courseId = getRouterParam(event, 'id')
@@ -58,6 +59,10 @@ export default defineEventHandler(async (event) => {
   if (body.whatsapp_contact_url !== undefined) updatePayload.whatsapp_contact_url = body.whatsapp_contact_url || null
   if (body.telegram_url !== undefined) updatePayload.telegram_url = body.telegram_url || null
   if (body.status !== undefined) updatePayload.status = body.status
+
+  if (body.instructor_name !== undefined) {
+    await setCourseInstructorName(client, courseId, body.instructor_name)
+  }
 
   const { data, error } = await client
     .from('courses')

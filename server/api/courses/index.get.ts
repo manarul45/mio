@@ -1,4 +1,5 @@
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { applyInstructorName, getCourseInstructorMap } from '~/server/utils/instructorNames'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -79,6 +80,9 @@ export default defineEventHandler(async (event) => {
       quizzes_count: totalQuizzes,
     }
   })
+
+  const nameMap = await getCourseInstructorMap(client)
+  mapped.forEach((course: any) => applyInstructorName(course, nameMap))
 
   return {
     courses: mapped,

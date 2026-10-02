@@ -1,4 +1,5 @@
 import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { applyInstructorName, getCourseInstructorMap } from '~/server/utils/instructorNames'
 
 export default defineEventHandler(async (event) => {
   const slug = getRouterParam(event, 'slug')
@@ -49,6 +50,9 @@ export default defineEventHandler(async (event) => {
   delete data.telegram_url
   delete data.whatsapp_group_url
   delete data.whatsapp_contact_url
+
+  const nameMap = await getCourseInstructorMap(client)
+  applyInstructorName(data, nameMap)
 
   return {
     ...data,

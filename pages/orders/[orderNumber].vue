@@ -37,6 +37,9 @@ const { data: order, refresh: refreshOrder } = await useAsyncData(`order_invoice
     .single()
 
   if (error || !data) throw createError({ statusCode: 404, statusMessage: 'Invoice pesanan tidak ditemukan' })
+  for (const item of data.order_items || []) {
+    if (item.course) await applySavedInstructorName(item.course)
+  }
   return data as Order
 })
 

@@ -1,25 +1,21 @@
-import { serverSupabaseUser } from '#supabase/server'
-import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
+import { assertCanModerateDiscussion } from '~/server/utils/discussionAccess'
 
 export default defineEventHandler(async (event) => {
   const discussionId = getRouterParam(event, 'id')
-  const user = await serverSupabaseUser(event)
-
-  if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Silakan masuk.' })
+  if (!discussionId) {
+    throw createError({ statusCode: 400, statusMessage: 'Pertanyaan tidak ditemukan.' })
   }
 
-  const client = getAdminSupabaseClient(event)
+  const { client } = await assertCanModerateDiscussion(event, discussionId)
 
-  // Fetch current status
   const { data: discussion, error: fetchErr } = await client
     .from('lesson_discussions')
-    .select('id, user_id, is_resolved')
+    .select('id, is_resolved')
     .eq('id', discussionId)
     .single()
 
   if (fetchErr || !discussion) {
-    throw createError({ statusCode: 404, statusMessage: 'Diskusi tidak ditemukan.' })
+    throw createError({ statusCode: 404, statusMessage: 'Pertanyaan tidak ditemukan.' })
   }
 
   const newStatus = !discussion.is_resolved

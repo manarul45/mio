@@ -67,6 +67,7 @@ const course = ref<any>({
 });
 
 const categories = ref<any[]>([]);
+const instructorNames = ref<string[]>([]);
 const isUploadingThumbnail = ref(false);
 
 // Section & Lesson Modals
@@ -126,6 +127,9 @@ const loadCourseDetails = async (silent = false) => {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
+        const roster: any = await $fetch('/api/course-instructors');
+        instructorNames.value = roster?.names || [];
+
         const data: any = await $fetch(`/api/instructor/courses/${courseId}`, {
             headers,
             query: currentUserId ? { user_id: currentUserId } : undefined
@@ -138,6 +142,7 @@ const loadCourseDetails = async (silent = false) => {
             learning_objectives: data.learning_objectives?.length ? data.learning_objectives : [''],
             requirements: data.requirements?.length ? data.requirements : [''],
             target_audience: data.target_audience?.length ? data.target_audience : [''],
+            instructor_name: data.instructor_name || instructorNames.value[0] || '',
             sections: sortedSections,
         };
     } catch (err: any) {
@@ -698,6 +703,7 @@ const saveCourseInfo = async () => {
                 learning_objectives: course.value.learning_objectives?.filter(Boolean),
                 requirements: course.value.requirements?.filter(Boolean),
                 target_audience: course.value.target_audience?.filter(Boolean),
+                instructor_name: course.value.instructor_name,
             }
         });
 
@@ -1197,6 +1203,16 @@ onMounted(() => {
                         label="Subjudul / Tagline Singkat"
                         placeholder="Tagline kursus..."
                     />
+                    <div class="space-y-1">
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Nama Pengajar *</label>
+                        <select
+                            v-model="course.instructor_name"
+                            class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-indigo-600 focus:outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                        >
+                            <option v-for="name in instructorNames" :key="name" :value="name">{{ name }}</option>
+                        </select>
+                        <p class="text-[11px] text-slate-400">Nama ini yang tampil untuk siswa. Akun login tetap akun admin.</p>
+                    </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div class="space-y-1">

@@ -69,13 +69,12 @@ const copyToClipboard = (text: string) => {
 }
 
 const duplicatePage = async (id: number) => {
-  const result = await swal.confirm(
+  const confirmed = await swal.confirm(
     'Duplikasi Landing Page',
     'Salin landing page / template ini ke dalam halaman baru?',
-    'Ya, Salin',
-    'question'
+    'Ya, Salin'
   )
-  if (!result.isConfirmed) return
+  if (!confirmed) return
 
   actionLoading.value = id
   try {
@@ -94,13 +93,12 @@ const duplicatePage = async (id: number) => {
 }
 
 const setAsHomepage = async (id: number, name: string) => {
-  const result = await swal.confirm(
+  const confirmed = await swal.confirm(
     'Jadikan Halaman Utama (Homepage)',
     `Jadikan "${name}" sebagai Tampilan Utama Homepage ( Halaman Depan / )?`,
-    'Ya, Jadikan Utama',
-    'question'
+    'Ya, Jadikan Utama'
   )
-  if (!result.isConfirmed) return
+  if (!confirmed) return
 
   actionLoading.value = id
   try {
@@ -115,13 +113,12 @@ const setAsHomepage = async (id: number, name: string) => {
 }
 
 const deletePage = async (id: number, name: string) => {
-  const result = await swal.confirm(
+  const confirmed = await swal.confirm(
     'Hapus Landing Page',
     `Apakah Anda yakin ingin menghapus "${name}" secara permanen?`,
-    'Ya, Hapus',
-    'warning'
+    'Ya, Hapus'
   )
-  if (!result.isConfirmed) return
+  if (!confirmed) return
 
   actionLoading.value = id
   try {

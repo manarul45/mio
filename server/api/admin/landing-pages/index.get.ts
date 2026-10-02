@@ -3,6 +3,7 @@ import { getAdminSupabaseClient } from '~/server/utils/supabaseAdmin'
 import { WHITELISTED_SHORTCODES } from '~/server/utils/landingPageService'
 
 export default defineEventHandler(async (event) => {
+  setHeader(event, 'Cache-Control', 'no-store')
   const client = getAdminSupabaseClient(event)
   await requireAdmin(event)
 

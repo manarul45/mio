@@ -26,6 +26,13 @@ definePageMeta({
 
 const toast = useToast()
 const swal = useSwal()
+const supabase = useSupabaseClient()
+
+const authHeaders = async () => {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 const loading = ref(true)
 const landingPages = ref<any[]>([])
@@ -37,7 +44,11 @@ const actionLoading = ref<number | null>(null)
 const fetchLandingPages = async () => {
   loading.value = true
   try {
-    const res: any = await $fetch('/api/admin/landing-pages')
+    const res: any = await $fetch('/api/admin/landing-pages', {
+      headers: await authHeaders(),
+      cache: 'no-store',
+      query: { t: Date.now() },
+    })
     landingPages.value = res.landingPages || []
     shortcodes.value = res.shortcodes || []
   } catch (err: any) {
@@ -122,9 +133,16 @@ const deletePage = async (id: number, name: string) => {
 
   actionLoading.value = id
   try {
-    await $fetch(`/api/admin/landing-pages/${id}`, { method: 'DELETE' })
+    await $fetch(`/api/admin/landing-pages/${id}`, {
+      method: 'DELETE',
+      headers: await authHeaders(),
+    })
+    landingPages.value = landingPages.value.filter((page) => String(page.id) !== String(id))
     toast.success('Landing page berhasil dihapus')
-    fetchLandingPages()
+    await fetchLandingPages()
+    if (landingPages.value.some((page) => String(page.id) === String(id))) {
+      toast.error('Landing page masih ada di daftar. Muat ulang halaman, lalu coba lagi.')
+    }
   } catch (err: any) {
     toast.error(err.data?.statusMessage || 'Gagal menghapus landing page')
   } finally {

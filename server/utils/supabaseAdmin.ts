@@ -12,7 +12,15 @@ export function getAdminSupabaseClient(event?: H3Event) {
 
   if (serviceKey && supabaseUrl) {
     return createClient(supabaseUrl, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false }
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: {
+        fetch: (input, init) => {
+          const headers = new Headers(init?.headers)
+          headers.set('apikey', serviceKey)
+          headers.set('Authorization', `Bearer ${serviceKey}`)
+          return fetch(input, { ...init, headers })
+        },
+      },
     })
   }
 

@@ -75,7 +75,7 @@ const submit = async () => {
     try {
         const entries = Object.entries(form.value);
         for (const [key, value] of entries) {
-            await supabase
+            const { error } = await supabase
                 .from('settings')
                 .upsert({
                     key,
@@ -83,6 +83,7 @@ const submit = async () => {
                     type: typeof value === 'boolean' ? 'boolean' : 'string',
                     updated_at: new Date().toISOString(),
                 }, { onConflict: 'key' });
+            if (error) throw error;
         }
         swal.fireSuccess('Tersimpan!', 'Pengaturan global sistem berhasil diperbarui.');
     } catch (err: any) {

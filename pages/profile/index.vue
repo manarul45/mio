@@ -119,7 +119,7 @@ const changePassword = async () => {
 const deleteAccount = async () => {
     const isConfirmed = await swal.confirmDialog({
         title: 'Hapus Akun Anda?',
-        text: 'Tindakan ini tidak dapat dibatalkan. Seluruh data riwayat belajar, transaksi, dan sertifikat Anda akan dihapus secara permanen.',
+        text: 'Akun login dan data belajar akan dihapus. Akun yang masih punya pesanan lunas atau masih menjadi pengajar tidak bisa dihapus.',
         confirmButtonText: 'Ya, Hapus Akun Saya',
         confirmButtonColor: '#ef4444',
     });
@@ -127,12 +127,15 @@ const deleteAccount = async () => {
     if (!isConfirmed) return;
 
     try {
-        if (user.value) {
-            await supabase.from('profiles').delete().eq('id', (user.value.id || (user.value as any).sub));
-        }
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        await $fetch('/api/account/delete', {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         await logout();
     } catch (err: any) {
-        swal.toastError(err.message || 'Gagal menghapus akun.');
+        swal.toastError(err.data?.statusMessage || err.message || 'Gagal menghapus akun.');
     }
 };
 </script>
@@ -283,7 +286,7 @@ const deleteAccount = async () => {
                 <h3 class="text-base font-bold text-rose-900 dark:text-rose-300">Zona Berbahaya</h3>
             </div>
             <p class="text-xs text-rose-700 dark:text-rose-400 leading-relaxed">
-                Setelah akun Anda dihapus, semua data akses kursus, progres pembelajaran, kuis kelulusan, dan sertifikat yang Anda miliki akan terhapus secara permanen.
+                Akun login akan dihapus. Kalau masih ada pesanan yang sudah lunas, atau Anda masih menjadi pengajar, penghapusan ditolak.
             </p>
             <div class="pt-2">
                 <Button variant="danger" size="sm" @click="deleteAccount">

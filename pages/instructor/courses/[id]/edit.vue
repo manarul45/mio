@@ -206,7 +206,9 @@ const deleteSection = async (section: any) => {
     if (!ok) return;
 
     try {
-        await supabase.from('course_sections').delete().eq('id', section.id);
+        const { data, error } = await supabase.from('course_sections').delete().eq('id', section.id).select('id');
+        if (error) throw error;
+        if (!data?.length) throw new Error('Modul tidak terhapus. Database menolak perintah hapus.');
         swal.toastSuccess('Modul berhasil dihapus');
         loadCourseDetails(true);
     } catch (err: any) {
@@ -478,7 +480,9 @@ const deleteLesson = async (lesson: any) => {
     if (!ok) return;
 
     try {
-        await supabase.from('lessons').delete().eq('id', lesson.id);
+        const { data, error } = await supabase.from('lessons').delete().eq('id', lesson.id).select('id');
+        if (error) throw error;
+        if (!data?.length) throw new Error('Pelajaran tidak terhapus. Database menolak perintah hapus.');
         swal.toastSuccess('Pelajaran berhasil dihapus');
         loadCourseDetails(true);
     } catch (err: any) {

@@ -11,11 +11,14 @@ const { userId } = await requireAdmin(event)
     throw createError({ statusCode: 400, statusMessage: 'ID landing page tidak valid.' })
   }
 
-  // Set all to false
-  await client
+  const { error: clearError } = await client
     .from('landing_pages')
     .update({ is_homepage: false })
     .neq('id', 0)
+
+  if (clearError) {
+    throw createError({ statusCode: 500, statusMessage: 'Gagal melepas halaman utama yang lama: ' + clearError.message })
+  }
 
   // Set selected to true and published
   const { data: targetPage, error } = await client
